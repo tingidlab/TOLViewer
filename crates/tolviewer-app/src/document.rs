@@ -112,8 +112,7 @@ impl Document {
     pub fn consensus(&mut self) -> &Consensus {
         let rev = self.undo.revision();
         if self.derived.revision != Some(rev) {
-            self.derived.consensus =
-                Consensus::compute(&self.alignment, self.alphabet, 0.5, 0.05);
+            self.derived.consensus = Consensus::compute(&self.alignment, self.alphabet, 0.5, 0.05);
             self.derived.revision = Some(rev);
         }
         &self.derived.consensus

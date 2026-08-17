@@ -64,17 +64,52 @@ struct Inverse {
 
 #[derive(Debug, Clone)]
 enum InverseOp {
-    SetResidue { row: usize, col: usize, residue: u8 },
-    SetBlock { row: usize, col: usize, residues: Vec<Vec<u8>> },
-    DeleteColumns { start: usize, end: usize },
-    RestoreColumns { at: usize, columns: Vec<Vec<u8>> },
-    DeleteAt { row: usize, col: usize },
-    InsertGapValue { row: usize, col: usize, residue: u8 },
-    InsertSequence { row: usize, seq: Box<Sequence> },
-    RemoveSequence { row: usize },
-    MoveSequence { from: usize, to: usize },
-    Rename { row: usize, id: String, description: String },
-    Replace { alignment: Box<Alignment> },
+    SetResidue {
+        row: usize,
+        col: usize,
+        residue: u8,
+    },
+    SetBlock {
+        row: usize,
+        col: usize,
+        residues: Vec<Vec<u8>>,
+    },
+    DeleteColumns {
+        start: usize,
+        end: usize,
+    },
+    RestoreColumns {
+        at: usize,
+        columns: Vec<Vec<u8>>,
+    },
+    DeleteAt {
+        row: usize,
+        col: usize,
+    },
+    InsertGapValue {
+        row: usize,
+        col: usize,
+        residue: u8,
+    },
+    InsertSequence {
+        row: usize,
+        seq: Box<Sequence>,
+    },
+    RemoveSequence {
+        row: usize,
+    },
+    MoveSequence {
+        from: usize,
+        to: usize,
+    },
+    Rename {
+        row: usize,
+        id: String,
+        description: String,
+    },
+    Replace {
+        alignment: Box<Alignment>,
+    },
     /// Restore each row to a recorded length. Column operations pad ragged rows
     /// to a common width as a side effect; this undoes that padding. Rows are
     /// only shortened when the excess is entirely gaps.
@@ -220,7 +255,7 @@ impl UndoStack {
                     .sequences
                     .get_mut(row)
                     .ok_or_else(|| crate::Error::out_of_range(format!("row {row}")))?;
-                
+
                 InverseOp::Rename {
                     row,
                     id: std::mem::replace(&mut seq.id, id),
@@ -330,7 +365,11 @@ mod tests {
     fn aln() -> Alignment {
         Alignment::new(
             "t",
-            vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AGGT"), Sequence::new("c", *b"ATGT")],
+            vec![
+                Sequence::new("a", *b"ACGT"),
+                Sequence::new("b", *b"AGGT"),
+                Sequence::new("c", *b"ATGT"),
+            ],
         )
     }
 
@@ -386,7 +425,8 @@ mod tests {
         let before = a.clone();
         let mut u = UndoStack::new();
         let new = Alignment::new("t", vec![Sequence::new("z", *b"AAAA")]);
-        u.apply(&mut a, EditOp::Replace { label: "align".into(), alignment: Box::new(new) }).unwrap();
+        u.apply(&mut a, EditOp::Replace { label: "align".into(), alignment: Box::new(new) })
+            .unwrap();
         assert_eq!(u.undo_label(), Some("align"));
         u.undo(&mut a).unwrap();
         assert_eq!(a, before);

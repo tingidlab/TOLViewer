@@ -145,7 +145,9 @@ fn nucleotide_color(c: u8) -> Color32 {
 fn amino_class_color(c: u8) -> Color32 {
     match c {
         // hydrophobic
-        b'A' | b'V' | b'L' | b'I' | b'M' | b'F' | b'W' | b'C' => Color32::from_rgb(0x6C, 0xA6, 0xE0),
+        b'A' | b'V' | b'L' | b'I' | b'M' | b'F' | b'W' | b'C' => {
+            Color32::from_rgb(0x6C, 0xA6, 0xE0)
+        }
         // polar uncharged
         b'S' | b'T' | b'N' | b'Q' => Color32::from_rgb(0x6F, 0xC2, 0x76),
         // positively charged
@@ -163,7 +165,9 @@ fn amino_class_color(c: u8) -> Color32 {
 /// The Clustal X protein palette.
 fn clustal_color(c: u8) -> Color32 {
     match c {
-        b'A' | b'I' | b'L' | b'M' | b'F' | b'W' | b'V' | b'C' => Color32::from_rgb(0x80, 0xA0, 0xF0),
+        b'A' | b'I' | b'L' | b'M' | b'F' | b'W' | b'V' | b'C' => {
+            Color32::from_rgb(0x80, 0xA0, 0xF0)
+        }
         b'K' | b'R' => Color32::from_rgb(0xF0, 0x15, 0x05),
         b'E' | b'D' => Color32::from_rgb(0xC0, 0x48, 0xC0),
         b'N' | b'Q' | b'S' | b'T' => Color32::from_rgb(0x15, 0xC0, 0x15),
@@ -182,7 +186,11 @@ fn ramp(t: f32, dark: bool) -> Color32 {
         (0xE0 as f32, 0x6A as f32 + k * (0xC0 as f32 - 0x6A as f32), 0x5A as f32)
     } else {
         let k = (t - 0.5) * 2.0;
-        (0xE0 as f32 * (1.0 - k) + 0x6F as f32 * k, 0xC0 as f32, 0x5A as f32 * (1.0 - k) + 0x76 as f32 * k)
+        (
+            0xE0 as f32 * (1.0 - k) + 0x6F as f32 * k,
+            0xC0 as f32,
+            0x5A as f32 * (1.0 - k) + 0x76 as f32 * k,
+        )
     };
     let c = Color32::from_rgb(r as u8, g as u8, b as u8);
     if dark {

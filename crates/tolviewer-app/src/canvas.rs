@@ -7,8 +7,8 @@
 //! same as a small one.
 
 use egui::{
-    Align2, Color32, CursorIcon, FontFamily, FontId, Pos2, Rect, Response, Sense, Stroke, StrokeKind,
-    UiBuilder, Vec2,
+    Align2, Color32, CursorIcon, FontFamily, FontId, Pos2, Rect, Response, Sense, Stroke,
+    StrokeKind, UiBuilder, Vec2,
 };
 use tolviewer_core::{is_gap, EditOp, GAP};
 
@@ -87,11 +87,13 @@ impl AlignmentCanvas<'_> {
             + (if view.show_consensus { cell_h } else { 0.0 })
             + (if has_mask { MASK_H } else { 0.0 });
 
-        let gutter_w = view.name_width.clamp(60.0, full.width() * 0.5);
-        let grid_rect = Rect::from_min_max(
-            full.min + Vec2::new(gutter_w, header_h),
-            full.max,
-        );
+        // The gutter takes at most half the window, but in a window narrower
+        // than twice the minimum gutter that upper bound falls below the lower
+        // one, so raise it rather than inverting the range.
+        const MIN_GUTTER: f32 = 60.0;
+        let max_gutter = (full.width() * 0.5).max(MIN_GUTTER);
+        let gutter_w = view.name_width.clamp(MIN_GUTTER, max_gutter).min(full.width().max(0.0));
+        let grid_rect = Rect::from_min_max(full.min + Vec2::new(gutter_w, header_h), full.max);
         if grid_rect.width() <= 1.0 || grid_rect.height() <= 1.0 {
             return ui.allocate_rect(full, Sense::hover());
         }
@@ -112,11 +114,12 @@ impl AlignmentCanvas<'_> {
                     .auto_shrink([false, false])
                     .show_viewport(ui, |ui, viewport| {
                         let content = Vec2::new(cols as f32 * cell_w, rows as f32 * cell_h);
-                        let (rect, resp) =
-                            ui.allocate_exact_size(content, Sense::click_and_drag());
+                        let (rect, resp) = ui.allocate_exact_size(content, Sense::click_and_drag());
                         grid.origin = rect.min;
-                        grid.visible_cols = visible_range(viewport.min.x, viewport.max.x, cell_w, cols);
-                        grid.visible_rows = visible_range(viewport.min.y, viewport.max.y, cell_h, rows);
+                        grid.visible_cols =
+                            visible_range(viewport.min.x, viewport.max.x, cell_w, cols);
+                        grid.visible_rows =
+                            visible_range(viewport.min.y, viewport.max.y, cell_h, rows);
                         paint_grid(ui, doc, view, &grid, cell_w, cell_h, dark);
                         resp
                     })
@@ -128,15 +131,19 @@ impl AlignmentCanvas<'_> {
         handle_grid_input(doc, &grid_response, &grid, cell_w, cell_h, actions);
 
         // --- frozen panes, painted after the grid so they sit on top ---------
-        let header_rect =
-            Rect::from_min_max(Pos2::new(full.min.x + gutter_w, full.min.y), Pos2::new(full.max.x, full.min.y + header_h));
+        let header_rect = Rect::from_min_max(
+            Pos2::new(full.min.x + gutter_w, full.min.y),
+            Pos2::new(full.max.x, full.min.y + header_h),
+        );
         let names_rect = Rect::from_min_max(
             Pos2::new(full.min.x, full.min.y + header_h),
             Pos2::new(full.min.x + gutter_w, full.max.y),
         );
-        let corner_rect = Rect::from_min_max(full.min, Pos2::new(full.min.x + gutter_w, full.min.y + header_h));
+        let corner_rect =
+            Rect::from_min_max(full.min, Pos2::new(full.min.x + gutter_w, full.min.y + header_h));
 
-        let header_response = paint_header(ui, doc, view, header_rect, &grid, cell_w, cell_h, dark, id_salt);
+        let header_response =
+            paint_header(ui, doc, view, header_rect, &grid, cell_w, cell_h, dark, id_salt);
         let names_response = paint_names(ui, doc, view, names_rect, &grid, cell_h, dark, id_salt);
         paint_corner(ui, corner_rect, dark);
 
@@ -181,10 +188,7 @@ fn paint_grid(
     let alphabet = doc.alphabet();
     let scheme = view.scheme;
     let draw_glyphs = cell_w >= GLYPH_MIN_WIDTH;
-    let font = FontId::new(
-        (cell_w * 1.5).min(cell_h * 0.82).max(4.0),
-        FontFamily::Monospace,
-    );
+    let font = FontId::new((cell_w * 1.5).min(cell_h * 0.82).max(4.0), FontFamily::Monospace);
 
     // Consensus is needed by two schemes and by dot-matching; take a copy of
     // just the visible slice so the borrow on `doc` ends here.
@@ -245,7 +249,7 @@ fn paint_grid(
 
             if draw_glyphs && !is_gap(residue) {
                 let shown = if view.dot_matches
-                    && consensus.get(idx).is_some_and(|&c| c.to_ascii_uppercase() == residue.to_ascii_uppercase())
+                    && consensus.get(idx).is_some_and(|&c| c.eq_ignore_ascii_case(&residue))
                 {
                     b'.'
                 } else {
@@ -297,7 +301,10 @@ fn paint_selection(ui: &egui::Ui, doc: &Document, grid: &GridPaint, cell_w: f32,
         let r = doc.selection.rows(rows);
         let c = doc.selection.cols(cols);
         let rect = Rect::from_min_max(
-            Pos2::new(grid.origin.x + c.start as f32 * cell_w, grid.origin.y + r.start as f32 * cell_h),
+            Pos2::new(
+                grid.origin.x + c.start as f32 * cell_w,
+                grid.origin.y + r.start as f32 * cell_h,
+            ),
             Pos2::new(grid.origin.x + c.end as f32 * cell_w, grid.origin.y + r.end as f32 * cell_h),
         );
         painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.28));
@@ -307,7 +314,10 @@ fn paint_selection(ui: &egui::Ui, doc: &Document, grid: &GridPaint, cell_w: f32,
     let cur = doc.selection.cursor;
     if cur.row < rows && cur.col < cols {
         let rect = Rect::from_min_size(
-            Pos2::new(grid.origin.x + cur.col as f32 * cell_w, grid.origin.y + cur.row as f32 * cell_h),
+            Pos2::new(
+                grid.origin.x + cur.col as f32 * cell_w,
+                grid.origin.y + cur.row as f32 * cell_h,
+            ),
             Vec2::new(cell_w, cell_h),
         );
         painter.rect_stroke(
@@ -340,7 +350,8 @@ fn paint_header(
     let mut y = rect.min.y;
 
     if view.show_ruler {
-        let ruler = Rect::from_min_max(Pos2::new(rect.min.x, y), Pos2::new(rect.max.x, y + RULER_H));
+        let ruler =
+            Rect::from_min_max(Pos2::new(rect.min.x, y), Pos2::new(rect.max.x, y + RULER_H));
         let step = tick_step(cell_w);
         let font = FontId::new(10.0, FontFamily::Proportional);
         let ink = ui.visuals().weak_text_color();
@@ -369,7 +380,8 @@ fn paint_header(
     }
 
     if view.show_quality_track {
-        let track = Rect::from_min_max(Pos2::new(rect.min.x, y), Pos2::new(rect.max.x, y + QUALITY_H));
+        let track =
+            Rect::from_min_max(Pos2::new(rect.min.x, y), Pos2::new(rect.max.x, y + QUALITY_H));
         let stats: Vec<f32> = {
             let c = doc.consensus();
             grid.visible_cols
@@ -402,9 +414,17 @@ fn paint_header(
         let mut buf = [0u8; 4];
         for (i, &residue) in residues.iter().enumerate() {
             let col = grid.visible_cols.start + i;
-            let cx = CellContext { residue, alphabet, consensus: None, stats: None, quality: None, dark };
+            let cx = CellContext {
+                residue,
+                alphabet,
+                consensus: None,
+                stats: None,
+                quality: None,
+                dark,
+            };
             let bg = background(view.scheme, &cx);
-            let cell = Rect::from_min_size(Pos2::new(x_of(col), track.min.y), Vec2::new(cell_w, cell_h));
+            let cell =
+                Rect::from_min_size(Pos2::new(x_of(col), track.min.y), Vec2::new(cell_w, cell_h));
             if let Some(bg) = bg {
                 painter.rect_filled(cell, 0.0, bg.gamma_multiply(0.7));
             }
@@ -481,21 +501,15 @@ fn paint_names(
     for row in grid.visible_rows.clone() {
         let Some(seq) = doc.alignment.sequences.get(row) else { continue };
         let y = rect.min.y + row as f32 * cell_h - grid.offset.y;
-        let line = Rect::from_min_max(
-            Pos2::new(rect.min.x, y),
-            Pos2::new(rect.max.x, y + cell_h),
-        );
+        let line = Rect::from_min_max(Pos2::new(rect.min.x, y), Pos2::new(rect.max.x, y + cell_h));
         if selected.as_ref().is_some_and(|r| r.contains(&row)) {
             painter.rect_filled(line, 0.0, ui.visuals().selection.bg_fill.gamma_multiply(0.3));
         }
         if row == doc.selection.cursor.row {
             painter.rect_filled(line, 0.0, ui.visuals().selection.bg_fill.gamma_multiply(0.12));
         }
-        let ink = if seq.hidden {
-            ui.visuals().weak_text_color()
-        } else {
-            ui.visuals().text_color()
-        };
+        let ink =
+            if seq.hidden { ui.visuals().weak_text_color() } else { ui.visuals().text_color() };
         // Clip so long names cannot spill into the residue grid.
         painter.with_clip_rect(line.intersect(rect)).text(
             Pos2::new(rect.min.x + 6.0, line.center().y),
@@ -552,7 +566,14 @@ fn tick_step(cell_w: f32) -> usize {
     100_000
 }
 
-fn cell_at(pos: Pos2, grid: &GridPaint, cell_w: f32, cell_h: f32, rows: usize, cols: usize) -> Cell {
+fn cell_at(
+    pos: Pos2,
+    grid: &GridPaint,
+    cell_w: f32,
+    cell_h: f32,
+    rows: usize,
+    cols: usize,
+) -> Cell {
     let col = ((pos.x - grid.origin.x) / cell_w).floor().max(0.0) as usize;
     let row = ((pos.y - grid.origin.y) / cell_h).floor().max(0.0) as usize;
     Cell::new(row.min(rows.saturating_sub(1)), col.min(cols.saturating_sub(1)))

@@ -64,7 +64,12 @@ impl Consensus {
     /// A column becomes the majority residue when that residue reaches
     /// `threshold` of the occupied rows (0.5 gives a simple majority rule);
     /// otherwise it becomes `N`/`X`. Columns below `min_occupancy` become gaps.
-    pub fn compute(aln: &Alignment, alphabet: Alphabet, threshold: f32, min_occupancy: f32) -> Consensus {
+    pub fn compute(
+        aln: &Alignment,
+        alphabet: Alphabet,
+        threshold: f32,
+        min_occupancy: f32,
+    ) -> Consensus {
         let width = aln.width();
         let rows = aln.len() as u32;
         let mut columns = Vec::with_capacity(width);
@@ -104,7 +109,8 @@ impl Consensus {
                     }
                 }
             }
-            let stats = ColumnStats { occupancy, rows, majority, majority_count, distinct, ambiguous };
+            let stats =
+                ColumnStats { occupancy, rows, majority, majority_count, distinct, ambiguous };
             let occ = stats.occupancy_fraction();
             residues.push(if occ < min_occupancy {
                 GAP
@@ -156,7 +162,9 @@ pub fn mean_pairwise_identity(aln: &Alignment) -> Option<f32> {
     let mut pairs = 0usize;
     for i in 0..n {
         for j in (i + 1)..n {
-            if let Some(id) = pairwise_identity(&aln.sequences[i].residues, &aln.sequences[j].residues) {
+            if let Some(id) =
+                pairwise_identity(&aln.sequences[i].residues, &aln.sequences[j].residues)
+            {
                 sum += id as f64;
                 pairs += 1;
             }

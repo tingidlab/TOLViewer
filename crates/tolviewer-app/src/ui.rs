@@ -13,8 +13,10 @@ use tolviewer_io::Format;
 use crate::app::{TolViewerApp, GAP_POLICIES, MATRIX_CHOICES, SCHEMES, TREE_CHOICES};
 use crate::canvas::{MAX_ZOOM, MIN_ZOOM};
 
-pub fn menu_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
-    egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+pub fn menu_bar(app: &mut TolViewerApp, ui: &mut egui::Ui) {
+    let ctx = ui.ctx().clone();
+    let ctx = &ctx;
+    egui::Panel::top(egui::Id::new("menu")).show(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             let has_doc = app.current_doc().is_some();
 
@@ -29,7 +31,9 @@ pub fn menu_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
                         ui.label(RichText::new("nothing yet").italics());
                     }
                     for path in recent {
-                        let label = path.file_name().map(|s| s.to_string_lossy().into_owned())
+                        let label = path
+                            .file_name()
+                            .map(|s| s.to_string_lossy().into_owned())
                             .unwrap_or_else(|| path.display().to_string());
                         if ui.button(label).on_hover_text(path.display().to_string()).clicked() {
                             app.cmd_open_path(path);
@@ -113,7 +117,9 @@ pub fn menu_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
                     ui.close();
                 }
                 ui.separator();
-                if ui.add_enabled(has_doc, egui::Button::new("New document from selection")).clicked()
+                if ui
+                    .add_enabled(has_doc, egui::Button::new("New document from selection"))
+                    .clicked()
                 {
                     app.cmd_new_from_selection();
                     ui.close();
@@ -155,10 +161,7 @@ pub fn menu_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
                 ui.menu_button("Sequence type", |ui| {
                     let current = app.current_doc().map(|d| d.alphabet());
                     for alphabet in [Alphabet::Dna, Alphabet::Rna, Alphabet::Protein] {
-                        if ui
-                            .radio(current == Some(alphabet), alphabet.name())
-                            .clicked()
-                        {
+                        if ui.radio(current == Some(alphabet), alphabet.name()).clicked() {
                             app.cmd_set_alphabet(alphabet);
                             ui.close();
                         }
@@ -169,7 +172,10 @@ pub fn menu_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
             ui.menu_button("Align", |ui| {
                 for engine in Engine::all() {
                     if ui
-                        .add_enabled(has_doc, egui::Button::new(format!("Align with {}", engine.name())))
+                        .add_enabled(
+                            has_doc,
+                            egui::Button::new(format!("Align with {}", engine.name())),
+                        )
                         .clicked()
                     {
                         app.align_params_mut().engine = *engine;
@@ -178,7 +184,8 @@ pub fn menu_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
                     }
                 }
                 ui.separator();
-                if ui.add_enabled(has_doc, egui::Button::new("Realign selected columns")).clicked() {
+                if ui.add_enabled(has_doc, egui::Button::new("Realign selected columns")).clicked()
+                {
                     app.cmd_align(ctx, true);
                     ui.close();
                 }
@@ -202,7 +209,9 @@ pub fn menu_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
                     app.cmd_remove_empty_columns();
                     ui.close();
                 }
-                if ui.add_enabled(has_doc, egui::Button::new("Remove columns over 50% gaps")).clicked()
+                if ui
+                    .add_enabled(has_doc, egui::Button::new("Remove columns over 50% gaps"))
+                    .clicked()
                 {
                     if let Some(doc) = app.current_doc() {
                         let mask = tolviewer_clean::remove_gappy_columns(&doc.alignment, 0.5);
@@ -265,11 +274,11 @@ pub fn menu_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
     });
 }
 
-pub fn tab_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
+pub fn tab_bar(app: &mut TolViewerApp, ui: &mut egui::Ui) {
     if app.documents().len() < 2 {
         return;
     }
-    egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
+    egui::Panel::top(egui::Id::new("tabs")).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let current = app.current_index();
             let titles: Vec<String> = app.documents().iter().map(|d| d.title()).collect();
@@ -282,8 +291,8 @@ pub fn tab_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
     });
 }
 
-pub fn status_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
-    egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+pub fn status_bar(app: &mut TolViewerApp, ui: &mut egui::Ui) {
+    egui::Panel::bottom(egui::Id::new("status")).show(ui, |ui| {
         ui.horizontal(|ui| {
             if let Some(doc) = app.current_doc() {
                 let rows = doc.rows();
@@ -304,10 +313,8 @@ pub fn status_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
                 }
                 if !doc.alignment.is_aligned() {
                     ui.separator();
-                    ui.label(
-                        RichText::new("not aligned").color(ui.visuals().warn_fg_color),
-                    )
-                    .on_hover_text("rows have different lengths; column edits will pad them");
+                    ui.label(RichText::new("not aligned").color(ui.visuals().warn_fg_color))
+                        .on_hover_text("rows have different lengths; column edits will pad them");
                 }
             } else {
                 ui.label("no document open");
@@ -340,72 +347,65 @@ pub fn status_bar(app: &mut TolViewerApp, ctx: &egui::Context) {
     });
 }
 
-pub fn side_panel(app: &mut TolViewerApp, ctx: &egui::Context) {
+pub fn side_panel(app: &mut TolViewerApp, ui: &mut egui::Ui) {
     if app.current_doc().is_none() {
         return;
     }
-    egui::SidePanel::right("info")
-        .resizable(true)
-        .default_width(230.0)
-        .show(ctx, |ui| {
-            ui.heading("Alignment");
-            let Some(doc) = app.current_doc_mut() else { return };
-            let rows = doc.rows();
-            let cols = doc.width();
-            let alphabet = doc.alphabet();
-            egui::Grid::new("info-grid").num_columns(2).striped(true).show(ui, |ui| {
-                ui.label("Sequences");
-                ui.label(rows.to_string());
-                ui.end_row();
-                ui.label("Columns");
-                ui.label(cols.to_string());
-                ui.end_row();
-                ui.label("Type");
-                ui.label(alphabet.name());
-                ui.end_row();
-                let conserved = doc.consensus().conserved_fraction();
-                ui.label("Identical cols");
-                ui.label(format!("{:.1}%", conserved * 100.0));
-                ui.end_row();
-                let gappy = doc.alignment.all_gap_columns().len();
-                ui.label("All-gap cols");
-                ui.label(gappy.to_string());
-                ui.end_row();
-            });
-
-            ui.separator();
-            ui.heading("Sequences");
-            let selected_rows = doc.selection.rows(rows);
-            let active = doc.selection.active;
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for (i, seq) in doc.alignment.sequences.iter().enumerate() {
-                    let marked = active && selected_rows.contains(&i);
-                    let ambiguity = seq.ambiguity_fraction(alphabet);
-                    let mut text = RichText::new(format!(
-                        "{}  ({} nt)",
-                        seq.id,
-                        seq.ungapped_len()
-                    ));
-                    if seq.hidden {
-                        text = text.weak().strikethrough();
-                    }
-                    if marked {
-                        text = text.strong();
-                    }
-                    let response = ui.label(text);
-                    let mut hover = format!(
-                        "{}\nungapped length {}\nambiguous {:.1}%",
-                        seq.header(),
-                        seq.ungapped_len(),
-                        ambiguity * 100.0
-                    );
-                    if let Some(q) = seq.mean_quality() {
-                        hover.push_str(&format!("\nmean Phred {q:.1}"));
-                    }
-                    response.on_hover_text(hover);
-                }
-            });
+    egui::Panel::right(egui::Id::new("info")).resizable(true).default_size(230.0).show(ui, |ui| {
+        ui.heading("Alignment");
+        let Some(doc) = app.current_doc_mut() else { return };
+        let rows = doc.rows();
+        let cols = doc.width();
+        let alphabet = doc.alphabet();
+        egui::Grid::new("info-grid").num_columns(2).striped(true).show(ui, |ui| {
+            ui.label("Sequences");
+            ui.label(rows.to_string());
+            ui.end_row();
+            ui.label("Columns");
+            ui.label(cols.to_string());
+            ui.end_row();
+            ui.label("Type");
+            ui.label(alphabet.name());
+            ui.end_row();
+            let conserved = doc.consensus().conserved_fraction();
+            ui.label("Identical cols");
+            ui.label(format!("{:.1}%", conserved * 100.0));
+            ui.end_row();
+            let gappy = doc.alignment.all_gap_columns().len();
+            ui.label("All-gap cols");
+            ui.label(gappy.to_string());
+            ui.end_row();
         });
+
+        ui.separator();
+        ui.heading("Sequences");
+        let selected_rows = doc.selection.rows(rows);
+        let active = doc.selection.active;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for (i, seq) in doc.alignment.sequences.iter().enumerate() {
+                let marked = active && selected_rows.contains(&i);
+                let ambiguity = seq.ambiguity_fraction(alphabet);
+                let mut text = RichText::new(format!("{}  ({} nt)", seq.id, seq.ungapped_len()));
+                if seq.hidden {
+                    text = text.weak().strikethrough();
+                }
+                if marked {
+                    text = text.strong();
+                }
+                let response = ui.label(text);
+                let mut hover = format!(
+                    "{}\nungapped length {}\nambiguous {:.1}%",
+                    seq.header(),
+                    seq.ungapped_len(),
+                    ambiguity * 100.0
+                );
+                if let Some(q) = seq.mean_quality() {
+                    hover.push_str(&format!("\nmean Phred {q:.1}"));
+                }
+                response.on_hover_text(hover);
+            }
+        });
+    });
 }
 
 pub fn welcome(app: &mut TolViewerApp, ui: &mut egui::Ui) {
@@ -424,7 +424,9 @@ pub fn welcome(app: &mut TolViewerApp, ui: &mut egui::Ui) {
             ui.add_space(24.0);
             ui.label(RichText::new("Recent").strong());
             for path in recent.into_iter().take(6) {
-                let label = path.file_name().map(|s| s.to_string_lossy().into_owned())
+                let label = path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_else(|| path.display().to_string());
                 if ui.link(label).on_hover_text(path.display().to_string()).clicked() {
                     app.cmd_open_path(path);
@@ -574,21 +576,25 @@ fn clean_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
     let mut apply = false;
     let mut validation: Option<String> = None;
 
-    egui::Window::new("Gblocks — select conserved blocks")
-        .open(&mut open)
-        .resizable(false)
-        .show(ctx, |ui| {
+    egui::Window::new("Gblocks — select conserved blocks").open(&mut open).resizable(false).show(
+        ctx,
+        |ui| {
             {
                 let params = app.clean_params_mut().as_mut().expect("set above");
                 egui::Grid::new("gblocks-grid").num_columns(2).show(ui, |ui| {
                     ui.label("b1 minimum for a conserved position");
-                    ui.add(egui::DragValue::new(&mut params.min_seqs_conserved).range(1..=rows.max(1)));
+                    ui.add(
+                        egui::DragValue::new(&mut params.min_seqs_conserved).range(1..=rows.max(1)),
+                    );
                     ui.end_row();
                     ui.label("b2 minimum for a flank position");
                     ui.add(egui::DragValue::new(&mut params.min_seqs_flank).range(1..=rows.max(1)));
                     ui.end_row();
                     ui.label("b3 maximum contiguous non-conserved");
-                    ui.add(egui::DragValue::new(&mut params.max_contiguous_nonconserved).range(1..=1000));
+                    ui.add(
+                        egui::DragValue::new(&mut params.max_contiguous_nonconserved)
+                            .range(1..=1000),
+                    );
                     ui.end_row();
                     ui.label("b4 minimum block length");
                     ui.add(egui::DragValue::new(&mut params.min_block_length).range(2..=1000));
@@ -609,8 +615,9 @@ fn clean_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
                         });
                     ui.end_row();
                     ui.label("Count similar residues");
-                    ui.checkbox(&mut params.use_similarity, "")
-                        .on_hover_text("For protein: treat positively scoring residues as conserved");
+                    ui.checkbox(&mut params.use_similarity, "").on_hover_text(
+                        "For protein: treat positively scoring residues as conserved",
+                    );
                     ui.end_row();
                 });
                 if let Err(e) = params.validate(rows) {
@@ -655,13 +662,17 @@ fn clean_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
                     run = true;
                 }
                 if ui
-                    .add_enabled(app.pending_clean().is_some(), egui::Button::new("Apply to alignment"))
+                    .add_enabled(
+                        app.pending_clean().is_some(),
+                        egui::Button::new("Apply to alignment"),
+                    )
                     .clicked()
                 {
                     apply = true;
                 }
             });
-        });
+        },
+    );
 
     if run {
         app.cmd_clean(ctx);
@@ -683,18 +694,18 @@ fn export_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
     let mut do_export: Option<bool> = None;
     egui::Window::new("Export alignment").open(&mut open).resizable(false).show(ctx, |ui| {
         let format = *app.export_format_mut();
-        egui::ComboBox::from_label("Format")
-            .selected_text(format.name())
-            .show_ui(ui, |ui| {
-                for f in Format::all().iter().filter(|f| f.can_write()) {
-                    ui.selectable_value(app.export_format_mut(), *f, f.name());
-                }
-            });
+        egui::ComboBox::from_label("Format").selected_text(format.name()).show_ui(ui, |ui| {
+            for f in Format::all().iter().filter(|f| f.can_write()) {
+                ui.selectable_value(app.export_format_mut(), *f, f.name());
+            }
+        });
         ui.separator();
         ui.label(
             RichText::new(match format {
                 Format::Phylip => "Strict PHYLIP truncates names to 10 characters.",
-                Format::PhylipRelaxed => "Relaxed PHYLIP keeps full names; RAxML and IQ-TREE read this.",
+                Format::PhylipRelaxed => {
+                    "Relaxed PHYLIP keeps full names; RAxML and IQ-TREE read this."
+                }
                 Format::Nexus => "NEXUS carries the sequence type and quotes awkward names.",
                 _ => "",
             })
@@ -771,7 +782,9 @@ fn rename_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
     let mut commit = false;
     egui::Window::new("Rename sequence").open(&mut open).resizable(false).show(ctx, |ui| {
         let response = ui.add(
-            egui::TextEdit::singleline(&mut name).desired_width(320.0).hint_text("name description"),
+            egui::TextEdit::singleline(&mut name)
+                .desired_width(320.0)
+                .hint_text("name description"),
         );
         response.request_focus();
         let submit = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -792,7 +805,7 @@ fn rename_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
 fn close_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
     let Some(index) = *app.dialogs_mut().confirm_close() else { return };
     let title = app.documents().get(index).map(|d| d.title()).unwrap_or_default();
-    let mut decided = false;
+    let mut decided: Option<bool> = None;
     egui::Window::new("Unsaved changes")
         .collapsible(false)
         .resizable(false)
@@ -804,19 +817,29 @@ fn close_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
                 if ui.button("Save").clicked() {
                     app.set_current(index);
                     app.cmd_save(false);
-                    decided = true;
+                    decided = Some(true);
                 }
                 if ui.button("Discard").clicked() {
                     app.cmd_force_close(index);
-                    decided = true;
+                    decided = Some(true);
                 }
                 if ui.button("Cancel").clicked() {
-                    decided = true;
+                    decided = Some(false);
                 }
             });
         });
-    if decided {
-        *app.dialogs_mut().confirm_close() = None;
+    match decided {
+        Some(true) => {
+            *app.dialogs_mut().confirm_close() = None;
+            // Saving or discarding may have been the last thing standing
+            // between the user and the quit they asked for.
+            app.cmd_resume_quit(ctx);
+        }
+        Some(false) => {
+            *app.dialogs_mut().confirm_close() = None;
+            app.cmd_cancel_quit();
+        }
+        None => {}
     }
 }
 

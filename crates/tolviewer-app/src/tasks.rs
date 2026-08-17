@@ -5,8 +5,8 @@
 //! through an atomic, and can be cancelled from the UI.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, Mutex};
 
 use tolviewer_align::{AlignParams, Progress};
 use tolviewer_clean::{GblocksParams, GblocksResult};

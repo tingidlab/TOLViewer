@@ -9,11 +9,7 @@ pub enum Error {
     /// Underlying I/O failure (file missing, permissions, disk full, ...).
     Io(std::io::Error),
     /// The file could not be understood as the requested format.
-    Parse {
-        format: &'static str,
-        line: Option<usize>,
-        message: String,
-    },
+    Parse { format: &'static str, line: Option<usize>, message: String },
     /// The data is well-formed but cannot be written in the requested format.
     Format(String),
     /// An operation needed an alignment (equal-length rows) but got ragged data.

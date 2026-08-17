@@ -47,11 +47,8 @@ impl Alignment {
         }
         // Sample up to 100 rows and 5000 residues each; plenty for a guess and
         // keeps this cheap on huge files.
-        let sample = self
-            .sequences
-            .iter()
-            .take(100)
-            .flat_map(|s| s.residues.iter().take(5000).copied());
+        let sample =
+            self.sequences.iter().take(100).flat_map(|s| s.residues.iter().take(5000).copied());
         let a = Alphabet::guess(sample);
         self.alphabet = Some(a);
         a
@@ -93,10 +90,8 @@ impl Alignment {
 
     /// Overwrite a single residue. Rows shorter than `col` are padded first.
     pub fn set(&mut self, row: usize, col: usize, residue: u8) -> Result<u8> {
-        let seq = self
-            .sequences
-            .get_mut(row)
-            .ok_or_else(|| Error::out_of_range(format!("row {row}")))?;
+        let seq =
+            self.sequences.get_mut(row).ok_or_else(|| Error::out_of_range(format!("row {row}")))?;
         if col >= seq.residues.len() {
             seq.pad_to(col + 1);
         }
@@ -203,10 +198,8 @@ impl Alignment {
 
     /// Insert a single gap into one row at `col`, pushing the rest right.
     pub fn insert_gap(&mut self, row: usize, col: usize) -> Result<()> {
-        let seq = self
-            .sequences
-            .get_mut(row)
-            .ok_or_else(|| Error::out_of_range(format!("row {row}")))?;
+        let seq =
+            self.sequences.get_mut(row).ok_or_else(|| Error::out_of_range(format!("row {row}")))?;
         if col > seq.residues.len() {
             seq.pad_to(col);
         }
@@ -222,10 +215,8 @@ impl Alignment {
     /// Delete one position from one row, pulling the rest left. Returns the
     /// removed residue.
     pub fn delete_at(&mut self, row: usize, col: usize) -> Result<u8> {
-        let seq = self
-            .sequences
-            .get_mut(row)
-            .ok_or_else(|| Error::out_of_range(format!("row {row}")))?;
+        let seq =
+            self.sequences.get_mut(row).ok_or_else(|| Error::out_of_range(format!("row {row}")))?;
         if col >= seq.residues.len() {
             return Err(Error::out_of_range(format!("column {col} in row {row}")));
         }
@@ -243,9 +234,7 @@ impl Alignment {
         let w = self.width();
         (0..w)
             .filter(|&c| {
-                self.sequences
-                    .iter()
-                    .all(|s| s.residues.get(c).is_none_or(|&x| is_gap(x)))
+                self.sequences.iter().all(|s| s.residues.get(c).is_none_or(|&x| is_gap(x)))
             })
             .collect()
     }
@@ -258,10 +247,7 @@ impl Alignment {
         }
         let mut mask = vec![false; w];
         for (c, keep) in mask.iter_mut().enumerate() {
-            *keep = self
-                .sequences
-                .iter()
-                .any(|s| s.residues.get(c).is_some_and(|&x| !is_gap(x)));
+            *keep = self.sequences.iter().any(|s| s.residues.get(c).is_some_and(|&x| !is_gap(x)));
         }
         self.keep_columns(&mask).unwrap_or(0)
     }
@@ -364,9 +350,7 @@ impl Alignment {
 
     /// Iterate the residues of one column, padding short rows with gaps.
     pub fn column(&self, col: usize) -> impl Iterator<Item = u8> + '_ {
-        self.sequences
-            .iter()
-            .map(move |s| s.residues.get(col).copied().unwrap_or(GAP))
+        self.sequences.iter().map(move |s| s.residues.get(col).copied().unwrap_or(GAP))
     }
 }
 
@@ -395,7 +379,8 @@ mod tests {
 
     #[test]
     fn ragged_is_not_aligned_and_pads() {
-        let mut a = Alignment::new("t", vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AC")]);
+        let mut a =
+            Alignment::new("t", vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AC")]);
         assert!(!a.is_aligned());
         a.pad_to_width();
         assert!(a.is_aligned());

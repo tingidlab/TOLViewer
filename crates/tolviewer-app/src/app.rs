@@ -114,14 +114,14 @@ pub struct TolViewerApp {
     goto_input: String,
     /// Set when the user has confirmed they want to quit despite unsaved work.
     allow_exit: bool,
+    /// Set while a quit is waiting on the unsaved-changes dialog.
+    quit_pending: bool,
 }
 
 impl TolViewerApp {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Vec<PathBuf>) -> Self {
-        let persisted: Persisted = cc
-            .storage
-            .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
-            .unwrap_or_default();
+        let persisted: Persisted =
+            cc.storage.and_then(|s| eframe::get_value(s, eframe::APP_KEY)).unwrap_or_default();
 
         let export_format = Format::all()
             .iter()
@@ -144,6 +144,7 @@ impl TolViewerApp {
             write_options: persisted.write,
             goto_input: String::new(),
             allow_exit: false,
+            quit_pending: false,
         };
         for path in paths {
             app.open_path(&path);
@@ -202,7 +203,11 @@ impl TolViewerApp {
         let Some(doc) = self.doc() else { return };
         let format = doc.format;
         let existing = doc.path.clone();
-        let path = if save_as || existing.is_none() {
+        // Plain "Save" on a document that already has a path writes straight
+        // back to it; everything else asks.
+        let path = if let (false, Some(path)) = (save_as, existing.clone()) {
+            path
+        } else {
             let mut dialog = rfd::FileDialog::new().set_title("Save alignment");
             if let Some(p) = &existing {
                 if let Some(dir) = p.parent() {
@@ -221,8 +226,6 @@ impl TolViewerApp {
                 Some(p) => p,
                 None => return,
             }
-        } else {
-            existing.expect("checked above that a path exists")
         };
         // A "Save as" to a different extension should honour the extension.
         let format = Format::from_path(&path).filter(|f| f.can_write()).unwrap_or(format);
@@ -397,10 +400,7 @@ impl TolViewerApp {
             }
         }
         let n = rows.len();
-        let result = self
-            .doc_mut()
-            .expect("checked above")
-            .replace("reverse complement", next);
+        let result = self.doc_mut().expect("checked above").replace("reverse complement", next);
         self.report(result);
         self.info(format!("reverse complemented {n} sequence(s)"));
     }
@@ -484,10 +484,8 @@ impl TolViewerApp {
             self.error("cleaning needs an alignment; align the sequences first");
             return;
         }
-        let params = self
-            .clean_params
-            .clone()
-            .unwrap_or_else(|| GblocksParams::defaults(doc.rows()));
+        let params =
+            self.clean_params.clone().unwrap_or_else(|| GblocksParams::defaults(doc.rows()));
         if let Err(e) = params.validate(doc.rows()) {
             self.error(e.to_string());
             return;
@@ -537,8 +535,10 @@ impl TolViewerApp {
 
     // ---- keyboard ------------------------------------------------------
 
-    fn handle_keys(&mut self, ctx: &egui::Context) {
-        if ctx.wants_keyboard_input() {
+    /// `viewport_height` is the height of the canvas area, used to size a
+    /// PageUp/PageDown step.
+    fn handle_keys(&mut self, ctx: &egui::Context, viewport_height: f32) {
+        if ctx.memory(|m| m.focused().is_some()) {
             // A text field has focus; leave the keys alone.
             return;
         }
@@ -621,7 +621,7 @@ impl TolViewerApp {
             return;
         }
         let shift = ctx.input(|i| i.modifiers.shift);
-        let page = (ctx.available_rect().height() / (doc.zoom * 1.4)).max(1.0) as isize;
+        let page = (viewport_height / (doc.zoom * 1.4)).max(1.0) as isize;
 
         let mut moves: Vec<(isize, isize)> = Vec::new();
         ctx.input(|i| {
@@ -784,46 +784,47 @@ impl eframe::App for TolViewerApp {
         eframe::set_value(storage, eframe::APP_KEY, &persisted);
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         self.poll_tasks();
         self.take_dropped_files(ctx);
-        self.handle_keys(ctx);
+        self.handle_keys(ctx, ui.max_rect().height());
 
-        crate::ui::menu_bar(self, ctx);
-        crate::ui::tab_bar(self, ctx);
-        crate::ui::status_bar(self, ctx);
-        crate::ui::side_panel(self, ctx);
+        crate::ui::menu_bar(self, ui);
+        crate::ui::tab_bar(self, ui);
+        crate::ui::status_bar(self, ui);
+        crate::ui::side_panel(self, ui);
         crate::ui::dialogs(self, ctx);
 
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(ctx.style().visuals.panel_fill))
-            .show(ctx, |ui| {
-                if self.docs.is_empty() {
-                    crate::ui::welcome(self, ui);
-                    return;
-                }
-                let mut actions = Vec::new();
-                let current = self.current;
-                let view = self.view.clone();
-                if let Some(doc) = self.docs.get_mut(current) {
-                    AlignmentCanvas { doc, view: &view, id_salt: egui::Id::new(("canvas", current)) }
-                        .show(ui, &mut actions);
-                }
-                for action in actions {
-                    match action {
-                        CanvasAction::Edit(op) => self.edit(op),
-                        CanvasAction::BeginRename(row) => {
-                            let name = self
-                                .doc()
-                                .and_then(|d| d.alignment.sequences.get(row))
-                                .map(|s| s.header())
-                                .unwrap_or_default();
-                            self.dialogs.rename = Some((row, name));
-                        }
-                        CanvasAction::ScrollToCaret => {}
+        let panel_fill = ui.visuals().panel_fill;
+        egui::CentralPanel::no_frame().frame(egui::Frame::NONE.fill(panel_fill)).show(ui, |ui| {
+            if self.docs.is_empty() {
+                crate::ui::welcome(self, ui);
+                return;
+            }
+            let mut actions = Vec::new();
+            let current = self.current;
+            let view = self.view.clone();
+            if let Some(doc) = self.docs.get_mut(current) {
+                AlignmentCanvas { doc, view: &view, id_salt: egui::Id::new(("canvas", current)) }
+                    .show(ui, &mut actions);
+            }
+            for action in actions {
+                match action {
+                    CanvasAction::Edit(op) => self.edit(op),
+                    CanvasAction::BeginRename(row) => {
+                        let name = self
+                            .doc()
+                            .and_then(|d| d.alignment.sequences.get(row))
+                            .map(|s| s.header())
+                            .unwrap_or_default();
+                        self.dialogs.rename = Some((row, name));
                     }
+                    CanvasAction::ScrollToCaret => {}
                 }
-            });
+            }
+        });
 
         // Age out notices.
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
@@ -839,6 +840,7 @@ impl eframe::App for TolViewerApp {
             if let Some(index) = self.docs.iter().position(|d| d.is_dirty()) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.current = index;
+                self.quit_pending = true;
                 self.dialogs.confirm_close = Some(index);
             }
         }
@@ -847,9 +849,8 @@ impl eframe::App for TolViewerApp {
 
 impl TolViewerApp {
     fn take_dropped_files(&mut self, ctx: &egui::Context) {
-        let dropped: Vec<PathBuf> = ctx.input(|i| {
-            i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect()
-        });
+        let dropped: Vec<PathBuf> =
+            ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
         for path in dropped {
             self.open_path(&path);
         }
@@ -1009,8 +1010,29 @@ impl TolViewerApp {
         // Centre the caret; the scroll area picks this up on the next frame.
         doc.scroll_col = col as f32;
     }
-    pub(crate) fn cmd_allow_exit(&mut self) {
-        self.allow_exit = true;
+    /// Called after the unsaved-changes dialog is answered. If a quit was
+    /// waiting on it and nothing is dirty any more, let the quit through;
+    /// otherwise move on to the next unsaved document.
+    pub(crate) fn cmd_resume_quit(&mut self, ctx: &egui::Context) {
+        if !self.quit_pending {
+            return;
+        }
+        match self.docs.iter().position(|d| d.is_dirty()) {
+            Some(next) => {
+                self.current = next;
+                self.dialogs.confirm_close = Some(next);
+            }
+            None => {
+                self.quit_pending = false;
+                self.allow_exit = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    /// The user cancelled out of the dialog, so abandon the quit too.
+    pub(crate) fn cmd_cancel_quit(&mut self) {
+        self.quit_pending = false;
     }
 
     pub(crate) fn align_params_mut(&mut self) -> &mut AlignParams {
@@ -1028,17 +1050,8 @@ impl TolViewerApp {
     pub(crate) fn export_format_mut(&mut self) -> &mut Format {
         &mut self.export_format
     }
-    pub(crate) fn write_options(&self) -> WriteOptions {
-        self.write_options.to_options()
-    }
     pub(crate) fn goto_input_mut(&mut self) -> &mut String {
         &mut self.goto_input
-    }
-    pub(crate) fn notify(&mut self, text: impl Into<String>) {
-        self.info(text);
-    }
-    pub(crate) fn notify_error(&mut self, text: impl Into<String>) {
-        self.error(text);
     }
     pub(crate) fn export_to(&mut self, path: PathBuf, format: Format, selection_only: bool) {
         let Some(doc) = self.doc() else { return };
@@ -1088,7 +1101,6 @@ impl Dialogs {
         &mut self.confirm_close
     }
 }
-
 
 /// Default parameter sets offered in the align dialog.
 pub(crate) fn engine_defaults(engine: Engine) -> AlignParams {

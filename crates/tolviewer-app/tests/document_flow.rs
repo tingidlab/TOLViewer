@@ -13,9 +13,7 @@ use tolviewer_core::{Alphabet, EditOp};
 use tolviewer_io::{Format, WriteOptions};
 
 fn example(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../testdata/examples")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/examples").join(name)
 }
 
 fn open(name: &str) -> Document {
@@ -46,8 +44,9 @@ fn opens_the_protein_example_and_detects_protein() {
 #[test]
 fn edit_then_undo_restores_the_file_byte_for_byte() {
     let mut doc = open("tingidae_COI.fasta");
-    let before = tolviewer_io::write_string(&doc.alignment, Format::Fasta, &WriteOptions::default())
-        .expect("FASTA always writes");
+    let before =
+        tolviewer_io::write_string(&doc.alignment, Format::Fasta, &WriteOptions::default())
+            .expect("FASTA always writes");
 
     doc.apply(EditOp::SetResidue { row: 3, col: 40, residue: b'N' }).unwrap();
     doc.apply(EditOp::RemoveSequence { row: 0 }).unwrap();
@@ -98,7 +97,8 @@ fn every_engine_produces_a_usable_alignment() {
         assert!(aligned.is_aligned(), "{} returned ragged rows", engine.name());
         assert_eq!(aligned.len(), doc.rows(), "{} lost sequences", engine.name());
         assert!(
-            aligned.width() >= doc.alignment.sequences.iter().map(|s| s.ungapped_len()).max().unwrap(),
+            aligned.width()
+                >= doc.alignment.sequences.iter().map(|s| s.ungapped_len()).max().unwrap(),
             "{} produced an alignment shorter than its longest sequence",
             engine.name()
         );

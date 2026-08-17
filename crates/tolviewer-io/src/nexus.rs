@@ -99,20 +99,12 @@ fn tokenize(text: &str) -> Result<Vec<Token>> {
                         }
                     }
                 }
-                toks.push(Token {
-                    text: value,
-                    line: start,
-                    quoted: true,
-                });
+                toks.push(Token { text: value, line: start, quoted: true });
                 continue;
             }
             ';' | '=' => {
                 flush(&mut toks, &mut cur, cur_line);
-                toks.push(Token {
-                    text: c.to_string(),
-                    line,
-                    quoted: false,
-                });
+                toks.push(Token { text: c.to_string(), line, quoted: false });
             }
             '\n' => {
                 flush(&mut toks, &mut cur, cur_line);
@@ -134,11 +126,7 @@ fn tokenize(text: &str) -> Result<Vec<Token>> {
 
 fn flush(toks: &mut Vec<Token>, cur: &mut String, line: usize) {
     if !cur.is_empty() {
-        toks.push(Token {
-            text: std::mem::take(cur),
-            line,
-            quoted: false,
-        });
+        toks.push(Token { text: std::mem::take(cur), line, quoted: false });
     }
 }
 
@@ -161,11 +149,7 @@ pub(crate) fn parse(bytes: &[u8], name: &str) -> Result<Alignment> {
     let text = decode(bytes);
     let toks = tokenize(&text)?;
     if !toks.first().is_some_and(|t| t.is("#nexus")) {
-        return Err(Error::parse(
-            FORMAT,
-            Some(1),
-            "missing the '#NEXUS' first line",
-        ));
+        return Err(Error::parse(FORMAT, Some(1), "missing the '#NEXUS' first line"));
     }
 
     let mut i = 1usize;
@@ -174,10 +158,7 @@ pub(crate) fn parse(bytes: &[u8], name: &str) -> Result<Alignment> {
             i += 1;
             continue;
         }
-        let block_name = toks
-            .get(i + 1)
-            .map(|t| t.text.to_ascii_lowercase())
-            .unwrap_or_default();
+        let block_name = toks.get(i + 1).map(|t| t.text.to_ascii_lowercase()).unwrap_or_default();
         let mut body_start = (i + 2).min(toks.len());
         if toks.get(body_start).is_some_and(|t| t.text == ";") {
             body_start += 1;
@@ -191,11 +172,7 @@ pub(crate) fn parse(bytes: &[u8], name: &str) -> Result<Alignment> {
         // codons, ...): skip it wholesale.
         i = (end + 2).max(i + 1);
     }
-    Err(Error::parse(
-        FORMAT,
-        None,
-        "no 'begin data;' or 'begin characters;' block found",
-    ))
+    Err(Error::parse(FORMAT, None, "no 'begin data;' or 'begin characters;' block found"))
 }
 
 /// Index of the `end`/`endblock` token closing the block that starts at `from`.
@@ -245,9 +222,8 @@ fn parse_data_block(body: &[Token], name: &str) -> Result<Alignment> {
         start = i;
     }
 
-    let matrix = matrix.ok_or_else(|| {
-        Error::parse(FORMAT, None, "the data block has no 'matrix' command")
-    })?;
+    let matrix = matrix
+        .ok_or_else(|| Error::parse(FORMAT, None, "the data block has no 'matrix' command"))?;
     let rows = read_matrix(matrix, &block)?;
 
     if let Some(ntax) = block.ntax {
@@ -255,10 +231,7 @@ fn parse_data_block(body: &[Token], name: &str) -> Result<Alignment> {
             return Err(Error::parse(
                 FORMAT,
                 matrix.first().map(|t| t.line),
-                format!(
-                    "dimensions declares ntax={ntax} but the matrix holds {} rows",
-                    rows.len()
-                ),
+                format!("dimensions declares ntax={ntax} but the matrix holds {} rows", rows.len()),
             ));
         }
     }
@@ -367,9 +340,7 @@ fn read_matrix(matrix: &[Token], block: &Block) -> Result<Vec<Row>> {
     // a repeated leading name gives it away.
     let interleaved = block.interleave.unwrap_or_else(|| {
         let mut seen: HashMap<&str, ()> = HashMap::new();
-        groups
-            .iter()
-            .any(|g| seen.insert(g[0].text.as_str(), ()).is_some())
+        groups.iter().any(|g| seen.insert(g[0].text.as_str(), ()).is_some())
     });
 
     let mut order: Vec<String> = Vec::new();
@@ -379,11 +350,7 @@ fn read_matrix(matrix: &[Token], block: &Block) -> Result<Vec<Row>> {
 
     for g in &groups {
         let continuing = !interleaved
-            && cur.is_some_and(|c| {
-                block
-                    .nchar
-                    .is_some_and(|n| rows[c].residues.len() < n)
-            });
+            && cur.is_some_and(|c| block.nchar.is_some_and(|n| rows[c].residues.len() < n));
         if continuing {
             let c = cur.unwrap_or(0);
             for t in g {
@@ -396,11 +363,7 @@ fn read_matrix(matrix: &[Token], block: &Block) -> Result<Vec<Row>> {
             Some(&r) => r,
             None => {
                 order.push(id.clone());
-                rows.push(Row {
-                    id: id.clone(),
-                    residues: Vec::new(),
-                    line: g[0].line,
-                });
+                rows.push(Row { id: id.clone(), residues: Vec::new(), line: g[0].line });
                 index.insert(id, rows.len() - 1);
                 rows.len() - 1
             }
@@ -443,9 +406,9 @@ fn read_matrix(matrix: &[Token], block: &Block) -> Result<Vec<Row>> {
 pub(crate) fn write(aln: &Alignment, opts: &WriteOptions) -> Result<String> {
     let rows = prepare_rows(aln, opts);
     let nchar = require_rectangular(&rows, "NEXUS")?;
-    let alphabet = aln.alphabet_hint().unwrap_or_else(|| {
-        Alphabet::guess(rows.iter().flat_map(|r| r.residues.iter().copied()))
-    });
+    let alphabet = aln
+        .alphabet_hint()
+        .unwrap_or_else(|| Alphabet::guess(rows.iter().flat_map(|r| r.residues.iter().copied())));
     let names: Vec<String> = rows.iter().map(|r| quote_name(&r.id)).collect();
     let name_width = names.iter().map(|n| n.chars().count()).max().unwrap_or(0) + 2;
 
@@ -453,30 +416,18 @@ pub(crate) fn write(aln: &Alignment, opts: &WriteOptions) -> Result<String> {
     out.line("#NEXUS");
     out.blank();
     out.line("begin data;");
-    out.line(format!(
-        "    dimensions ntax={} nchar={};",
-        rows.len(),
-        nchar
-    ));
+    out.line(format!("    dimensions ntax={} nchar={};", rows.len(), nchar));
     out.line(format!(
         "    format datatype={} missing={} gap={}{};",
         alphabet.nexus_datatype(),
         MISSING as char,
         GAP as char,
-        if opts.interleaved {
-            " interleave=yes"
-        } else {
-            ""
-        }
+        if opts.interleaved { " interleave=yes" } else { "" }
     ));
     out.line("    matrix");
 
     let width = opts.effective_block_width();
-    let blocks = if opts.interleaved {
-        nchar.div_ceil(width).max(1)
-    } else {
-        1
-    };
+    let blocks = if opts.interleaved { nchar.div_ceil(width).max(1) } else { 1 };
     for b in 0..blocks {
         if b > 0 {
             out.blank();
@@ -487,11 +438,7 @@ pub(crate) fn write(aln: &Alignment, opts: &WriteOptions) -> Result<String> {
             } else {
                 (0, nchar)
             };
-            out.line(format!(
-                "{:<name_width$}{}",
-                name,
-                residue_str(&row.residues[start..end])
-            ));
+            out.line(format!("{:<name_width$}{}", name, residue_str(&row.residues[start..end])));
         }
     }
     out.line("    ;");
@@ -503,7 +450,28 @@ pub(crate) fn write(aln: &Alignment, opts: &WriteOptions) -> Result<String> {
 fn quote_name(name: &str) -> String {
     let needs = name.is_empty()
         || name.chars().any(|c| {
-            c.is_whitespace() || matches!(c, '(' | ')' | '[' | ']' | '{' | '}' | '/' | '\\' | ',' | ';' | ':' | '=' | '*' | '\'' | '"' | '`' | '<' | '>' | '-')
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    '(' | ')'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | '/'
+                        | '\\'
+                        | ','
+                        | ';'
+                        | ':'
+                        | '='
+                        | '*'
+                        | '\''
+                        | '"'
+                        | '`'
+                        | '<'
+                        | '>'
+                        | '-'
+                )
         });
     if needs {
         format!("'{}'", name.replace('\'', "''"))
@@ -633,15 +601,9 @@ beta  WIPA\n\
     fn round_trips_quoting_names_that_need_it() {
         let aln = Alignment::new(
             "t",
-            vec![
-                Sequence::new("alpha", *b"ACGTACGT"),
-                Sequence::new("Homo sapiens", *b"ACGT--GT"),
-            ],
+            vec![Sequence::new("alpha", *b"ACGTACGT"), Sequence::new("Homo sapiens", *b"ACGT--GT")],
         );
-        let opts = WriteOptions {
-            sanitize_names: false,
-            ..Default::default()
-        };
+        let opts = WriteOptions { sanitize_names: false, ..Default::default() };
         let text = write(&aln, &opts).unwrap();
         assert!(text.contains("'Homo sapiens'"), "{text}");
         let back = parse(text.as_bytes(), "t").unwrap();
@@ -653,16 +615,9 @@ beta  WIPA\n\
     fn interleaved_write_round_trips() {
         let aln = Alignment::new(
             "t",
-            vec![
-                Sequence::new("alpha", *b"ACGTACGTAC"),
-                Sequence::new("beta", *b"ACGTTTGTAC"),
-            ],
+            vec![Sequence::new("alpha", *b"ACGTACGTAC"), Sequence::new("beta", *b"ACGTTTGTAC")],
         );
-        let opts = WriteOptions {
-            interleaved: true,
-            block_width: 4,
-            ..Default::default()
-        };
+        let opts = WriteOptions { interleaved: true, block_width: 4, ..Default::default() };
         let text = write(&aln, &opts).unwrap();
         let back = parse(text.as_bytes(), "t").unwrap();
         assert_eq!(back.sequences[0].residues, b"ACGTACGTAC");
@@ -671,13 +626,8 @@ beta  WIPA\n\
 
     #[test]
     fn refuses_ragged_input() {
-        let aln = Alignment::new(
-            "t",
-            vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AC")],
-        );
-        assert!(matches!(
-            write(&aln, &WriteOptions::default()),
-            Err(Error::Format(_))
-        ));
+        let aln =
+            Alignment::new("t", vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AC")]);
+        assert!(matches!(write(&aln, &WriteOptions::default()), Err(Error::Format(_))));
     }
 }

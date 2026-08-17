@@ -227,14 +227,22 @@ impl TolViewerApp {
         // A "Save as" to a different extension should honour the extension.
         let format = Format::from_path(&path).filter(|f| f.can_write()).unwrap_or(format);
         let options = self.write_options.to_options();
-        let doc = self.doc_mut().expect("checked above");
-        match tolviewer_io::write_file(&doc.alignment, &path, format, &options) {
-            Ok(()) => {
+        let alignment = self.doc().expect("checked above").alignment.clone();
+        match write_padding_if_needed(&alignment, &path, format, &options) {
+            Ok(padded) => {
+                let doc = self.doc_mut().expect("checked above");
                 doc.path = Some(path.clone());
                 doc.format = format;
                 doc.mark_saved();
                 self.remember(&path);
                 self.info(format!("saved {}", path.display()));
+                if padded {
+                    self.info(format!(
+                        "{} needs equal-length rows, so short rows were padded with gaps in the \
+                         saved file (the document itself is unchanged)",
+                        format.name()
+                    ));
+                }
             }
             Err(e) => self.error(format!("could not save: {e}")),
         }
@@ -682,6 +690,34 @@ impl TolViewerApp {
     }
 }
 
+/// Write `alignment` to `path`, and if the format rejects it for having rows
+/// of different lengths, pad a copy with trailing gaps and try once more.
+///
+/// PHYLIP, NEXUS, Clustal and Stockholm all require a rectangular matrix. A
+/// user who has just typed into the last row should get their file, not a
+/// refusal — but the document is left alone, and the caller says what happened.
+/// Returns whether padding was needed.
+fn write_padding_if_needed(
+    alignment: &Alignment,
+    path: &Path,
+    format: Format,
+    options: &WriteOptions,
+) -> Result<bool> {
+    match tolviewer_io::write_file(alignment, path, format, options) {
+        Ok(()) => Ok(false),
+        Err(e) => {
+            // Only a formatting refusal is worth retrying; a disk error is not.
+            if !matches!(e, Error::Format(_)) || alignment.is_aligned() {
+                return Err(e);
+            }
+            let mut padded = alignment.clone();
+            padded.pad_to_width();
+            tolviewer_io::write_file(&padded, path, format, options)?;
+            Ok(true)
+        }
+    }
+}
+
 /// Compare names so `seq2` sorts before `seq10`.
 fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let mut ai = a.char_indices().peekable();
@@ -1012,10 +1048,16 @@ impl TolViewerApp {
             doc.alignment.clone()
         };
         let options = self.write_options.to_options();
-        match tolviewer_io::write_file(&alignment, &path, format, &options) {
-            Ok(()) => {
+        match write_padding_if_needed(&alignment, &path, format, &options) {
+            Ok(padded) => {
                 self.remember(&path);
                 self.info(format!("exported {} to {}", format.name(), path.display()));
+                if padded {
+                    self.info(format!(
+                        "{} needs equal-length rows, so short rows were padded with gaps",
+                        format.name()
+                    ));
+                }
             }
             Err(e) => self.error(format!("export failed: {e}")),
         }

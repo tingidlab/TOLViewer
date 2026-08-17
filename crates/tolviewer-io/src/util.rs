@@ -19,18 +19,13 @@ pub(crate) fn decode(bytes: &[u8]) -> Cow<'_, str> {
 
 /// Iterate `(1-based line number, line)` pairs, tolerating CRLF.
 pub(crate) fn lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
-    text.split('\n')
-        .enumerate()
-        .map(|(i, l)| (i + 1, l.strip_suffix('\r').unwrap_or(l)))
+    text.split('\n').enumerate().map(|(i, l)| (i + 1, l.strip_suffix('\r').unwrap_or(l)))
 }
 
 /// Append the residues of `s` to `out`, discarding whitespace and digits
 /// (sequence lines in the wild carry column rulers and running counts).
 pub(crate) fn push_residues(out: &mut Vec<u8>, s: &str) {
-    out.extend(
-        s.bytes()
-            .filter(|c| !c.is_ascii_whitespace() && !c.is_ascii_digit()),
-    );
+    out.extend(s.bytes().filter(|c| !c.is_ascii_whitespace() && !c.is_ascii_digit()));
 }
 
 /// Residues as text. Residues are ASCII by construction.
@@ -58,7 +53,8 @@ pub(crate) fn is_conservation_line(s: &str) -> bool {
 pub(crate) fn sanitize_name(name: &str) -> String {
     name.chars()
         .map(|c| {
-            if c.is_whitespace() || matches!(c, '\'' | '"' | '(' | ')' | '[' | ']' | ':' | ';' | ',')
+            if c.is_whitespace()
+                || matches!(c, '\'' | '"' | '(' | ')' | '[' | ']' | ':' | ';' | ',')
             {
                 '_'
             } else {
@@ -94,11 +90,7 @@ pub(crate) fn rows(aln: &Alignment, opts: &WriteOptions) -> Vec<Row> {
         .iter()
         .filter(|s| opts.include_hidden || !s.hidden)
         .map(|s| Row {
-            id: if opts.sanitize_names {
-                sanitize_name(&s.id)
-            } else {
-                s.id.clone()
-            },
+            id: if opts.sanitize_names { sanitize_name(&s.id) } else { s.id.clone() },
             description: s.description.clone(),
             residues: if opts.uppercase {
                 s.residues.iter().map(|c| c.to_ascii_uppercase()).collect()

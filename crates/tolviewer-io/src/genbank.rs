@@ -42,10 +42,7 @@ pub(crate) fn parse(bytes: &[u8], name: &str) -> Result<Alignment> {
             in_origin = false;
             in_definition = false;
             let id = rest.split_whitespace().next().unwrap_or("").to_string();
-            cur = Some(Record {
-                id,
-                ..Default::default()
-            });
+            cur = Some(Record { id, ..Default::default() });
             continue;
         }
         if trimmed.starts_with("//") {

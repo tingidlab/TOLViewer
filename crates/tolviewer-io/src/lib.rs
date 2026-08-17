@@ -54,19 +54,17 @@ pub use options::{LineEnding, WriteOptions};
 pub fn read_file(path: &Path) -> Result<Alignment> {
     let bytes = fs::read(path)?;
     let head = &bytes[..bytes.len().min(64 * 1024)];
-    let format = Format::sniff(head)
-        .or_else(|| Format::from_path(path))
-        .ok_or_else(|| {
-            Error::parse(
-                "file",
-                None,
-                format!(
-                    "cannot tell what format '{}' is: it matches no known \
+    let format = Format::sniff(head).or_else(|| Format::from_path(path)).ok_or_else(|| {
+        Error::parse(
+            "file",
+            None,
+            format!(
+                "cannot tell what format '{}' is: it matches no known \
                      signature and its extension is not one we recognise",
-                    path.display()
-                ),
-            )
-        })?;
+                path.display()
+            ),
+        )
+    })?;
     parse(&bytes, format, &stem(path))
 }
 
@@ -109,10 +107,9 @@ pub fn write_string(aln: &Alignment, format: Format, opts: &WriteOptions) -> Res
         Format::Nexus => nexus::write(aln, opts),
         Format::Clustal => clustal::write(aln, opts),
         Format::Stockholm => stockholm::write(aln, opts),
-        Format::Msf | Format::Genbank => Err(Error::format(format!(
-            "{} files can be read but not written",
-            format.name()
-        ))),
+        Format::Msf | Format::Genbank => {
+            Err(Error::format(format!("{} files can be read but not written", format.name())))
+        }
     }
 }
 
@@ -145,9 +142,7 @@ fn temp_path(path: &Path) -> PathBuf {
 
 /// The file stem, used as the alignment's display name.
 fn stem(path: &Path) -> String {
-    path.file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -158,10 +153,7 @@ mod tests {
     fn aln() -> Alignment {
         Alignment::new(
             "t",
-            vec![
-                Sequence::new("alpha", *b"ACGTACGTAC"),
-                Sequence::new("beta", *b"ACGT--GTAC"),
-            ],
+            vec![Sequence::new("alpha", *b"ACGTACGTAC"), Sequence::new("beta", *b"ACGT--GTAC")],
         )
     }
 

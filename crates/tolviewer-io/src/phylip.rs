@@ -31,18 +31,11 @@ pub(crate) fn parse(bytes: &[u8], name: &str, strict: bool) -> Result<Alignment>
         .ok_or_else(|| Error::parse(FORMAT, None, "file is empty"))?;
     let (hline, htext) = all[header_pos];
     let (ntax, nchar) = phylip_header(htext.trim()).ok_or_else(|| {
-        Error::parse(
-            FORMAT,
-            Some(hline),
-            "expected a header line of two numbers, 'ntax nchar'",
-        )
+        Error::parse(FORMAT, Some(hline), "expected a header line of two numbers, 'ntax nchar'")
     })?;
 
-    let data: Vec<(usize, &str)> = all[header_pos + 1..]
-        .iter()
-        .copied()
-        .filter(|(_, l)| !l.trim().is_empty())
-        .collect();
+    let data: Vec<(usize, &str)> =
+        all[header_pos + 1..].iter().copied().filter(|(_, l)| !l.trim().is_empty()).collect();
 
     if ntax == 0 {
         return Ok(Alignment::new(name, Vec::new()));
@@ -50,10 +43,8 @@ pub(crate) fn parse(bytes: &[u8], name: &str, strict: bool) -> Result<Alignment>
 
     // If the first ntax lines are already full-length rows the file is
     // sequential (or a single interleaved block, which parses identically).
-    let first_block_complete = data.len() >= ntax
-        && data[..ntax]
-            .iter()
-            .all(|(_, l)| residue_count(l, strict) == nchar);
+    let first_block_complete =
+        data.len() >= ntax && data[..ntax].iter().all(|(_, l)| residue_count(l, strict) == nchar);
 
     let rows = if first_block_complete {
         sequential(&data, ntax, nchar, strict)
@@ -62,10 +53,8 @@ pub(crate) fn parse(bytes: &[u8], name: &str, strict: bool) -> Result<Alignment>
             .or_else(|first| sequential(&data, ntax, nchar, strict).map_err(|_| first))
     }?;
 
-    let seqs: Vec<Sequence> = rows
-        .into_iter()
-        .map(|(id, residues)| Sequence::new(id, residues))
-        .collect();
+    let seqs: Vec<Sequence> =
+        rows.into_iter().map(|(id, residues)| Sequence::new(id, residues)).collect();
     Ok(Alignment::new(name, seqs))
 }
 
@@ -105,11 +94,8 @@ fn sequential(data: &[(usize, &str)], ntax: usize, nchar: usize, strict: bool) -
         let (n, line) = *data.get(i).ok_or_else(|| {
             Error::parse(
                 FORMAT,
-                None,
-                format!(
-                    "header declares {ntax} sequences but the file only holds {}",
-                    out.len()
-                ),
+                data.last().map(|(n, _)| *n),
+                format!("header declares {ntax} sequences but the file only holds {}", out.len()),
             )
         })?;
         i += 1;
@@ -140,7 +126,7 @@ fn interleaved(data: &[(usize, &str)], ntax: usize, nchar: usize, strict: bool) 
     if data.len() < ntax {
         return Err(Error::parse(
             FORMAT,
-            None,
+            data.last().map(|(n, _)| *n),
             format!(
                 "header declares {ntax} sequences but the first block only holds {}",
                 data.len()
@@ -212,10 +198,7 @@ pub(crate) fn write(aln: &Alignment, opts: &WriteOptions, strict: bool) -> Resul
     let nchar = require_rectangular(&rows, "PHYLIP")?;
     let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
     let labels: Vec<String> = if strict {
-        strict_names(&ids)?
-            .iter()
-            .map(|s| format!("{s:<NAME_WIDTH$}"))
-            .collect()
+        strict_names(&ids)?.iter().map(|s| format!("{s:<NAME_WIDTH$}")).collect()
     } else {
         let width = ids.iter().map(|s| s.chars().count()).max().unwrap_or(0);
         ids.iter().map(|s| format!("{s:<width$} ")).collect()
@@ -397,16 +380,9 @@ mod tests {
     fn writes_and_re_reads_interleaved() {
         let aln = Alignment::new(
             "t",
-            vec![
-                Sequence::new("alpha", *b"ACGTACGTAC"),
-                Sequence::new("beta", *b"ACGTTTTTAC"),
-            ],
+            vec![Sequence::new("alpha", *b"ACGTACGTAC"), Sequence::new("beta", *b"ACGTTTTTAC")],
         );
-        let opts = WriteOptions {
-            interleaved: true,
-            block_width: 4,
-            ..Default::default()
-        };
+        let opts = WriteOptions { interleaved: true, block_width: 4, ..Default::default() };
         let text = write(&aln, &opts, true).unwrap();
         assert!(text.starts_with("2 10\n"), "{text}");
         let back = parse(text.as_bytes(), "t", true).unwrap();
@@ -416,10 +392,8 @@ mod tests {
 
     #[test]
     fn refuses_ragged_input() {
-        let aln = Alignment::new(
-            "t",
-            vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AC")],
-        );
+        let aln =
+            Alignment::new("t", vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AC")]);
         let e = write(&aln, &WriteOptions::default(), true).unwrap_err();
         assert!(matches!(e, Error::Format(_)));
     }

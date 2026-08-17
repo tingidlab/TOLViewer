@@ -71,11 +71,7 @@ pub(crate) fn parse(bytes: &[u8], name: &str) -> Result<Alignment> {
     if order.is_empty() {
         return Err(Error::parse(FORMAT, None, "no sequence blocks found"));
     }
-    let seqs = order
-        .into_iter()
-        .zip(residues)
-        .map(|(id, r)| Sequence::new(id, r))
-        .collect();
+    let seqs = order.into_iter().zip(residues).map(|(id, r)| Sequence::new(id, r)).collect();
     Ok(Alignment::new(name, seqs))
 }
 
@@ -84,13 +80,7 @@ pub(crate) fn write(aln: &Alignment, opts: &WriteOptions) -> Result<String> {
     let rows = rows(aln, opts);
     let ncols = require_rectangular(&rows, "Clustal")?;
     let width = opts.effective_block_width();
-    let name_width = rows
-        .iter()
-        .map(|r| r.id.chars().count())
-        .max()
-        .unwrap_or(0)
-        .max(10)
-        + 6;
+    let name_width = rows.iter().map(|r| r.id.chars().count()).max().unwrap_or(0).max(10) + 6;
 
     let mut out = Out::new(opts.line_ending);
     out.line("CLUSTAL W (1.81) multiple sequence alignment");
@@ -108,11 +98,7 @@ pub(crate) fn write(aln: &Alignment, opts: &WriteOptions) -> Result<String> {
             let chunk = residue_str(&row.residues[start..end]);
             out.line(format!("{:<name_width$}{}", row.id, chunk));
         }
-        out.line(format!(
-            "{:<name_width$}{}",
-            "",
-            conservation(&rows, start, end)
-        ));
+        out.line(format!("{:<name_width$}{}", "", conservation(&rows, start, end)));
     }
     Ok(out.finish())
 }
@@ -123,7 +109,9 @@ fn conservation(rows: &[crate::util::Row], start: usize, end: usize) -> String {
         .map(|c| {
             let mut it = rows.iter().map(|r| r.residues[c].to_ascii_uppercase());
             match it.next() {
-                Some(first) if !tolviewer_core::alphabet::is_gap(first) && it.all(|x| x == first) => {
+                Some(first)
+                    if !tolviewer_core::alphabet::is_gap(first) && it.all(|x| x == first) =>
+                {
                     '*'
                 }
                 _ => ' ',
@@ -172,15 +160,9 @@ Seq2            GGGG\n\
     fn round_trips() {
         let aln = Alignment::new(
             "t",
-            vec![
-                Sequence::new("alpha", *b"ACGTACGTAC"),
-                Sequence::new("beta", *b"ACGTTTGTAC"),
-            ],
+            vec![Sequence::new("alpha", *b"ACGTACGTAC"), Sequence::new("beta", *b"ACGTTTGTAC")],
         );
-        let opts = WriteOptions {
-            block_width: 4,
-            ..Default::default()
-        };
+        let opts = WriteOptions { block_width: 4, ..Default::default() };
         let text = write(&aln, &opts).unwrap();
         let back = parse(text.as_bytes(), "t").unwrap();
         assert_eq!(back.sequences[0].id, "alpha");
@@ -190,13 +172,8 @@ Seq2            GGGG\n\
 
     #[test]
     fn refuses_ragged_input() {
-        let aln = Alignment::new(
-            "t",
-            vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AC")],
-        );
-        assert!(matches!(
-            write(&aln, &WriteOptions::default()),
-            Err(Error::Format(_))
-        ));
+        let aln =
+            Alignment::new("t", vec![Sequence::new("a", *b"ACGT"), Sequence::new("b", *b"AC")]);
+        assert!(matches!(write(&aln, &WriteOptions::default()), Err(Error::Format(_))));
     }
 }

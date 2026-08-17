@@ -89,11 +89,7 @@ pub(crate) fn parse(bytes: &[u8], name: &str) -> Result<Alignment> {
                 ),
             ));
         }
-        records.push(Record {
-            header,
-            residues,
-            quality,
-        });
+        records.push(Record { header, residues, quality });
     }
 
     if records.is_empty() {
@@ -143,11 +139,7 @@ pub(crate) fn write(aln: &Alignment, opts: &WriteOptions) -> Result<String> {
         out.line("+");
         let mut q = Vec::with_capacity(row.residues.len());
         for i in 0..row.residues.len() {
-            let score = row
-                .quality
-                .as_ref()
-                .and_then(|v| v.get(i).copied())
-                .unwrap_or(0);
+            let score = row.quality.as_ref().and_then(|v| v.get(i).copied()).unwrap_or(0);
             q.push(33u8.saturating_add(score.min(93)));
         }
         out.line(residue_str(&q));
@@ -220,13 +212,7 @@ mod tests {
 
     #[test]
     fn writes_bang_for_rows_without_quality() {
-        let aln = Alignment::new(
-            "t",
-            vec![tolviewer_core::Sequence::new("a", *b"ACGT")],
-        );
-        assert_eq!(
-            write(&aln, &WriteOptions::default()).unwrap(),
-            "@a\nACGT\n+\n!!!!\n"
-        );
+        let aln = Alignment::new("t", vec![tolviewer_core::Sequence::new("a", *b"ACGT")]);
+        assert_eq!(write(&aln, &WriteOptions::default()).unwrap(), "@a\nACGT\n+\n!!!!\n");
     }
 }

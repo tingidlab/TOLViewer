@@ -54,11 +54,7 @@ pub(crate) fn parse(bytes: &[u8], name: &str) -> Result<Alignment> {
     if order.is_empty() {
         return Err(Error::parse(FORMAT, None, "no sequence lines found"));
     }
-    let seqs = order
-        .into_iter()
-        .zip(residues)
-        .map(|(id, r)| Sequence::new(id, r))
-        .collect();
+    let seqs = order.into_iter().zip(residues).map(|(id, r)| Sequence::new(id, r)).collect();
     Ok(Alignment::new(name, seqs))
 }
 
@@ -87,11 +83,7 @@ pub(crate) fn write(aln: &Alignment, opts: &WriteOptions) -> Result<String> {
         }
     } else {
         for row in &rows {
-            out.line(format!(
-                "{:<name_width$}{}",
-                row.id,
-                residue_str(&row.residues)
-            ));
+            out.line(format!("{:<name_width$}{}", row.id, residue_str(&row.residues)));
         }
     }
     out.line("//");
@@ -128,10 +120,7 @@ seq2 TTTA\n\
     fn round_trips() {
         let aln = Alignment::new(
             "t",
-            vec![
-                Sequence::new("alpha", *b"ACGTACGT"),
-                Sequence::new("beta", *b"ACGT--GT"),
-            ],
+            vec![Sequence::new("alpha", *b"ACGTACGT"), Sequence::new("beta", *b"ACGT--GT")],
         );
         let text = write(&aln, &WriteOptions::default()).unwrap();
         assert!(text.starts_with("# STOCKHOLM 1.0\n"));
@@ -144,11 +133,7 @@ seq2 TTTA\n\
     #[test]
     fn interleaved_round_trips() {
         let aln = Alignment::new("t", vec![Sequence::new("a", *b"ACGTACGT")]);
-        let opts = WriteOptions {
-            interleaved: true,
-            block_width: 3,
-            ..Default::default()
-        };
+        let opts = WriteOptions { interleaved: true, block_width: 3, ..Default::default() };
         let text = write(&aln, &opts).unwrap();
         let back = parse(text.as_bytes(), "t").unwrap();
         assert_eq!(back.sequences[0].residues, b"ACGTACGT");

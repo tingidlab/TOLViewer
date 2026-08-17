@@ -62,11 +62,7 @@ pub(crate) fn parse(bytes: &[u8], name: &str) -> Result<Alignment> {
     if order.is_empty() {
         return Err(Error::parse(FORMAT, None, "no sequences found"));
     }
-    let seqs = order
-        .into_iter()
-        .zip(residues)
-        .map(|(id, r)| Sequence::new(id, r))
-        .collect();
+    let seqs = order.into_iter().zip(residues).map(|(id, r)| Sequence::new(id, r)).collect();
     Ok(Alignment::new(name, seqs))
 }
 
@@ -115,7 +111,8 @@ alpha      \n";
 
     #[test]
     fn header_order_wins_over_block_order() {
-        let src = b"!!NA_MULTIPLE_ALIGNMENT 1.0\n Name: a Len: 4\n Name: b Len: 4\n//\nb ACGT\na TTTT\n";
+        let src =
+            b"!!NA_MULTIPLE_ALIGNMENT 1.0\n Name: a Len: 4\n Name: b Len: 4\n//\nb ACGT\na TTTT\n";
         let a = parse(src, "t").unwrap();
         assert_eq!(a.sequences[0].id, "a");
         assert_eq!(a.sequences[0].residues, b"TTTT");

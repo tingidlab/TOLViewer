@@ -98,9 +98,7 @@ impl Format {
             let stem = Path::new(path.file_stem()?);
             return Format::from_path(stem);
         }
-        ALL.iter()
-            .copied()
-            .find(|f| f.extensions().contains(&ext.as_str()))
+        ALL.iter().copied().find(|f| f.extensions().contains(&ext.as_str()))
     }
 
     /// Guess from the first bytes of the file. Prefer this over the extension
@@ -147,9 +145,8 @@ impl Format {
         if first.starts_with('@') && data.iter().skip(1).take(6).any(|l| l.starts_with('+')) {
             return Some(Format::Fastq);
         }
-        if let Some((ntax, _nchar)) = phylip_header(first) {
+        if phylip_header(first).is_some() {
             let second = data.get(1).copied().unwrap_or("");
-            let _ = ntax;
             return Some(if strict_phylip_line(second) {
                 Format::Phylip
             } else {
@@ -208,36 +205,21 @@ mod tests {
 
     #[test]
     fn double_extension_is_unwrapped() {
-        assert_eq!(
-            Format::from_path(Path::new("x.aln.txt")),
-            Some(Format::Clustal)
-        );
+        assert_eq!(Format::from_path(Path::new("x.aln.txt")), Some(Format::Clustal));
     }
 
     #[test]
     fn sniffs_the_obvious_ones() {
         assert_eq!(Format::sniff(b">a\nACGT\n"), Some(Format::Fasta));
-        assert_eq!(
-            Format::sniff(b"@r1\nACGT\n+\nIIII\n"),
-            Some(Format::Fastq)
-        );
+        assert_eq!(Format::sniff(b"@r1\nACGT\n+\nIIII\n"), Some(Format::Fastq));
         assert_eq!(Format::sniff(b"#NEXUS\nbegin data;\n"), Some(Format::Nexus));
         assert_eq!(
             Format::sniff(b"CLUSTAL W (1.81) multiple sequence alignment\n"),
             Some(Format::Clustal)
         );
-        assert_eq!(
-            Format::sniff(b"# STOCKHOLM 1.0\nseq ACGT\n//\n"),
-            Some(Format::Stockholm)
-        );
-        assert_eq!(
-            Format::sniff(b"LOCUS       X 12 bp DNA linear\n"),
-            Some(Format::Genbank)
-        );
-        assert_eq!(
-            Format::sniff(b"!!AA_MULTIPLE_ALIGNMENT 1.0\n"),
-            Some(Format::Msf)
-        );
+        assert_eq!(Format::sniff(b"# STOCKHOLM 1.0\nseq ACGT\n//\n"), Some(Format::Stockholm));
+        assert_eq!(Format::sniff(b"LOCUS       X 12 bp DNA linear\n"), Some(Format::Genbank));
+        assert_eq!(Format::sniff(b"!!AA_MULTIPLE_ALIGNMENT 1.0\n"), Some(Format::Msf));
         assert_eq!(Format::sniff(b"not a sequence file\n"), None);
     }
 

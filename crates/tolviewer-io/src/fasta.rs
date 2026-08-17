@@ -7,7 +7,9 @@
 use tolviewer_core::{Alignment, Error, Result, Sequence};
 
 use crate::options::WriteOptions;
-use crate::util::{chunks, decode, lines, push_residues, residue_str, rows, sequence_from_header, Out};
+use crate::util::{
+    chunks, decode, lines, push_residues, residue_str, rows, sequence_from_header, Out,
+};
 
 const FORMAT: &str = "FASTA";
 
@@ -110,10 +112,7 @@ mod tests {
     #[test]
     fn writes_wrapped_and_unwrapped() {
         let aln = Alignment::new("t", vec![Sequence::new("a", *b"ACGTACGT")]);
-        let mut o = WriteOptions {
-            line_width: 4,
-            ..Default::default()
-        };
+        let mut o = WriteOptions { line_width: 4, ..Default::default() };
         assert_eq!(write(&aln, &o).unwrap(), ">a\nACGT\nACGT\n");
         o.line_width = 0;
         assert_eq!(write(&aln, &o).unwrap(), ">a\nACGTACGT\n");
@@ -123,10 +122,8 @@ mod tests {
 
     #[test]
     fn hidden_rows_are_skipped_unless_asked_for() {
-        let mut aln = Alignment::new(
-            "t",
-            vec![Sequence::new("a", *b"AC"), Sequence::new("b", *b"GT")],
-        );
+        let mut aln =
+            Alignment::new("t", vec![Sequence::new("a", *b"AC"), Sequence::new("b", *b"GT")]);
         aln.sequences[1].hidden = true;
         let mut o = WriteOptions::default();
         assert_eq!(write(&aln, &o).unwrap(), ">a\nAC\n");

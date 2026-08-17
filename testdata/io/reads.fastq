@@ -1,0 +1,12 @@
+@read1 lane1 tile1
+ACGTACGTACGT
++
+IIIIIIIIIIII
+@read2 lane1 tile1
+ACGTACGTTTGT
++read2 lane1 tile1
+IIIIHHHH5555
+@read3 lane1 tile1
+ACGTACGTACGA
++
+!!!!IIIIIIII

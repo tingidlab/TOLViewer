@@ -220,12 +220,12 @@ impl UndoStack {
                     .sequences
                     .get_mut(row)
                     .ok_or_else(|| crate::Error::out_of_range(format!("row {row}")))?;
-                let old = InverseOp::Rename {
+                
+                InverseOp::Rename {
                     row,
                     id: std::mem::replace(&mut seq.id, id),
                     description: std::mem::replace(&mut seq.description, description),
-                };
-                old
+                }
             }
             EditOp::Replace { alignment, .. } => {
                 let old = std::mem::replace(aln, *alignment);

@@ -1,0 +1,13 @@
+# STOCKHOLM 1.0
+#=GF ID   TEST_FAM
+#=GF DE   A small fixture family
+#=GS alpha/1-20 AC A0A000
+
+alpha/1-20         ACGUACGUACGU
+beta/1-20          ACGUACGU--GU
+#=GC SS_cons       <<<<....>>>>
+
+alpha/1-20         AAAAUUUU
+beta/1-20          AAAAUUUU
+#=GC SS_cons       ........
+//

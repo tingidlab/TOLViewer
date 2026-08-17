@@ -1,0 +1,12 @@
+CLUSTAL W (1.81) multiple sequence alignment
+
+
+alpha           ACGTACGTACGTACGTACGT      20
+beta            ACGTACGTACGTACGT--GT      20
+gamma           ACGTACGTTCGTACGTACGT      20
+                ******** *******  **
+
+alpha           GGGGCCCC      28
+beta            GGGGCCCC      28
+gamma           GGGGCCCA      28
+                *******.

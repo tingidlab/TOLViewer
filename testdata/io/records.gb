@@ -1,0 +1,20 @@
+LOCUS       AB000001                  24 bp    DNA     linear   INV 01-JAN-2000
+DEFINITION  Example species mitochondrial cytochrome oxidase subunit I
+            (COI) gene, partial cds.
+ACCESSION   AB000001
+VERSION     AB000001.1
+SOURCE      Example species
+FEATURES             Location/Qualifiers
+     source          1..24
+                     /organism="Example species"
+     CDS             1..24
+                     /gene="COI"
+ORIGIN
+        1 acgtacgtac gtacgtacgt acgt
+//
+LOCUS       AB000002                  12 bp    DNA     linear   INV 01-JAN-2000
+DEFINITION  Second example record.
+ACCESSION   AB000002
+ORIGIN
+        1 ggccggccgg cc
+//

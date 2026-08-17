@@ -1,0 +1,19 @@
+#NEXUS
+
+begin data;
+    dimensions ntax=3 nchar=20;
+    format datatype=protein interleave=yes gap=- missing=?;
+    matrix
+    alpha  MKVLWIPQRS
+    beta   MKVLWIPQRS
+    gamma  MKVL--PQRS
+
+    alpha  TYACDEFGHI
+    beta   TYACDEFGHI
+    gamma  TYACDEFGHI
+    ;
+end;
+
+begin trees;
+    tree best = ((alpha:0.1,beta:0.1):0.05,gamma:0.2);
+end;

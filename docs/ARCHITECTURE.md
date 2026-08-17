@@ -328,7 +328,8 @@ pub enum GapPolicy { /// no gaps allowed in any kept column
 #[derive(Debug, Clone)]
 pub struct GblocksParams {
     /// b1: minimum number of sequences for a conserved position. Gblocks
-    /// requires > n/2; default is ceil(n/2) + 1.
+    /// requires a strict majority; the default is `n / 2 + 1` with integer
+    /// division, which is what the original program uses ("50% + 1").
     pub min_seqs_conserved: usize,
     /// b2: minimum number of sequences for a flank position. Must be >= b1;
     /// default is ceil(n * 0.85).

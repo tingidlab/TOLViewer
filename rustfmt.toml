@@ -1,0 +1,4 @@
+# Keep short struct literals, calls and match arms on one line; the codebase is
+# written that way and re-wrapping them makes the numeric code harder to read.
+max_width = 100
+use_small_heuristics = "Max"

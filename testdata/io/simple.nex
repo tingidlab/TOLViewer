@@ -1,0 +1,27 @@
+#NEXUS
+[ TOLViewer test fixture [ with a nested comment ] end of comment ]
+
+begin taxa;
+    dimensions ntax=3;
+    taxlabels alpha beta 'Homo sapiens';
+end;
+
+begin data;
+    dimensions ntax=3 nchar=16;
+    format datatype=dna missing=? gap=- matchchar=.;
+    matrix
+    alpha           ACGTACGTACGTACGT
+    beta            ....AC..----ACGT
+    'Homo sapiens'  ACGTACGT--GTACGT
+    ;
+end;
+
+begin sets;
+    charset gene1 = 1-8;
+    charset gene2 = 9-16;
+end;
+
+begin mrbayes;
+    lset nst=6 rates=invgamma;
+    mcmc ngen=10000;
+end;

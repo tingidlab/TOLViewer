@@ -1,0 +1,11 @@
+; an old-style comment line, ignored on read
+>alpha Homo sapiens COI partial cds
+ACGTACGTAC GTACGTACGT
+ACGT
+
+>beta Pan troglodytes COI partial cds
+ACGTACGTAC GTACGT--GT
+ACGT
+>gamma Gorilla gorilla COI partial cds
+acgtacgtac gtacgtacgt
+acgt

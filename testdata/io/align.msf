@@ -1,0 +1,14 @@
+!!AA_MULTIPLE_ALIGNMENT 1.0
+
+  fixture.msf  MSF: 16  Type: P  January 1, 2000  12:00  Check: 3210  ..
+
+ Name: alpha  Len:   16  Check: 1234  Weight: 1.00
+ Name: beta   Len:   16  Check: 5678  Weight: 1.00
+ Name: gamma  Len:   16  Check: 9012  Weight: 1.00
+
+//
+
+                    1                                       16
+alpha       MKVLWIPQ RSTYACDE
+beta        MKVLWIPQ RSTY..DE
+gamma       MKVL..PQ RSTYACDE

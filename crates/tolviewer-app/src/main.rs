@@ -1,19 +1,13 @@
 //! TOLViewer — view, edit, align and clean DNA and protein alignments.
 
 #![forbid(unsafe_code)]
-// On Windows, keep the console window from appearing behind the GUI in release
+// On Windows, keep a console window from appearing behind the GUI in release
 // builds while leaving it available for `--help` in debug builds.
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
-mod app;
-mod canvas;
-mod document;
-mod selection;
-mod tasks;
-mod theme;
-mod ui;
-
 use std::path::PathBuf;
+
+use tolviewer_app::TolViewerApp;
 
 const HELP: &str = "\
 TOLViewer — view, edit, align and clean DNA and protein alignments
@@ -59,12 +53,12 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "TOLViewer",
         options,
-        Box::new(move |cc| Ok(Box::new(app::TolViewerApp::new(cc, paths)))),
+        Box::new(move |cc| Ok(Box::new(TolViewerApp::new(cc, paths)))),
     )
 }
 
-/// A small procedurally drawn icon: four stacked bars in the base colours, so
-/// the app is recognisable in a dock without shipping a binary asset.
+/// A small procedurally drawn icon: stacked bars in the base colours, so the
+/// app is recognisable in a dock or task bar without shipping a binary asset.
 fn icon() -> egui::IconData {
     const SIZE: usize = 64;
     let palette = [

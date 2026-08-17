@@ -138,7 +138,7 @@ pub fn pairwise_identity(a: &[u8], b: &[u8]) -> Option<f32> {
             continue;
         }
         compared += 1;
-        if x.to_ascii_uppercase() == y.to_ascii_uppercase() {
+        if x.eq_ignore_ascii_case(&y) {
             same += 1;
         }
     }

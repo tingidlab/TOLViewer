@@ -116,10 +116,10 @@ impl Alignment {
         }
         self.pad_to_width();
         for s in &mut self.sequences {
-            s.residues.splice(at..at, std::iter::repeat(GAP).take(count));
+            s.residues.splice(at..at, std::iter::repeat_n(GAP, count));
             if let Some(q) = &mut s.quality {
                 if at <= q.len() {
-                    q.splice(at..at, std::iter::repeat(0).take(count));
+                    q.splice(at..at, std::iter::repeat_n(0, count));
                 }
             }
         }
@@ -161,7 +161,7 @@ impl Alignment {
             s.residues.splice(at..at, block.iter().copied());
             if let Some(q) = &mut s.quality {
                 if at <= q.len() {
-                    q.splice(at..at, std::iter::repeat(0).take(block.len()));
+                    q.splice(at..at, std::iter::repeat_n(0, block.len()));
                 }
             }
         }
@@ -245,7 +245,7 @@ impl Alignment {
             .filter(|&c| {
                 self.sequences
                     .iter()
-                    .all(|s| s.residues.get(c).map_or(true, |&x| is_gap(x)))
+                    .all(|s| s.residues.get(c).is_none_or(|&x| is_gap(x)))
             })
             .collect()
     }

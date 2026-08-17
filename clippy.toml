@@ -1,0 +1,2 @@
+# Alignment code legitimately carries a lot of tuning parameters.
+too-many-arguments-threshold = 9

@@ -451,6 +451,7 @@ fn align_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
     if !open {
         return;
     }
+    let rows = app.current_doc().map_or(0, |d| d.rows());
     let mut start = false;
     egui::Window::new("Alignment settings")
         .open(&mut open)
@@ -469,13 +470,16 @@ fn align_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
                 });
                 ui.label(
                     RichText::new(match params.engine {
-                        Engine::Clustal => "Progressive alignment on a neighbour-joining guide tree. The most predictable of the three.",
-                        Engine::Muscle => "Progressive draft, then iterative refinement. Usually the most accurate on divergent sets.",
-                        Engine::Mafft => "FFT-accelerated. The fastest choice for large numbers of sequences.",
+                        Engine::Clustal => "Progressive alignment on a neighbour-joining guide tree. The fastest of the three, and the most predictable.",
+                        Engine::Muscle => "Progressive draft, then iterative refinement. Usually the most accurate on divergent sets, but much the slowest: refinement re-aligns across every tree edge each round.",
+                        Engine::Mafft => "FFT-accelerated group-to-group alignment. Its advantage grows with the number of sequences; on small sets it is no faster than Clustal.",
                     })
                     .weak()
                     .small(),
                 );
+                if let Some(warning) = cost_warning(params.engine, params.iterations, rows) {
+                    ui.colored_label(ui.visuals().warn_fg_color, warning);
+                }
                 ui.separator();
                 egui::Grid::new("align-grid").num_columns(2).show(ui, |ui| {
                     ui.label("Substitution matrix");
@@ -868,4 +872,27 @@ fn about_dialog(app: &mut TolViewerApp, ctx: &egui::Context) {
         ui.hyperlink_to("github.com/tingidlab/TOLViewer", "https://github.com/tingidlab/TOLViewer");
     });
     *app.dialogs_mut().about() = open;
+}
+
+/// Warn before the user commits to a run that will take minutes.
+///
+/// The thresholds come from the measured benchmarks in
+/// `crates/tolviewer-align/tests/accuracy.rs`: at 200 sequences of ~1000
+/// columns Clustal takes about 2 s and MAFFT about 5 s, while MUSCLE with two
+/// refinement rounds takes about 34 s, and refinement scales far worse than
+/// linearly in the number of sequences.
+fn cost_warning(engine: Engine, iterations: usize, rows: usize) -> Option<String> {
+    if rows < 100 {
+        return None;
+    }
+    match engine {
+        Engine::Muscle if iterations > 0 => Some(format!(
+            "{rows} sequences with {iterations} refinement round(s) may take several minutes. \
+             Set refinement rounds to 0, or use MAFFT, for a faster first look.",
+        )),
+        _ if rows >= 1000 => {
+            Some(format!("{rows} sequences will take a while; the job runs in the background and can be cancelled."))
+        }
+        _ => None,
+    }
 }

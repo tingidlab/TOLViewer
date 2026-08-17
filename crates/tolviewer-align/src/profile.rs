@@ -862,7 +862,9 @@ pub(crate) fn progressive_cached(
                 let a = stack.pop().ok_or_else(|| Error::algorithm("guide tree walk underflow"))?;
                 let ops = align_profiles_auto(&a, &b, ctx);
                 let merged = merge(&a, &b, &ops, ctx);
-                cache.insert(subtree_key(node), merged.clone());
+                if cache.enabled {
+                    cache.insert(subtree_key(node), &merged);
+                }
                 stack.push(merged);
                 done += 1;
                 if !progress.tick(done as f32 / total_nodes as f32, message) {

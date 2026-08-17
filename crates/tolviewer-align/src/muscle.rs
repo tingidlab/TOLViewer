@@ -44,7 +44,7 @@ pub(crate) fn align(
     )?;
     let t1 = tree::build(&d1, TreeMethod::Upgma, progress)?;
     let w1 = profile::tree_weights(&t1, n);
-    let mut cache: SubtreeCache = SubtreeCache::new();
+    let mut cache = SubtreeCache::enabled();
     let mut reused = 0usize;
     let draft = profile::progressive_cached(
         seqs,
@@ -82,6 +82,11 @@ pub(crate) fn align(
             &mut cache,
             &mut reused2,
         )?;
+        if !progress
+            .tick(0.0, &format!("MUSCLE: reused {reused2} unchanged subtrees from the draft"))
+        {
+            return Err(tolviewer_core::Error::Cancelled);
+        }
         let cand = profile::to_rows(&improved, n);
         let score = profile::sp_score(&cand, &weights, ctx);
         if score > best_score {

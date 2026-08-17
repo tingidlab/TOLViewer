@@ -42,6 +42,26 @@ license or keep on `$PATH`.
 * Align everything, realign just the selected columns, or add sequences to an
   existing alignment. Jobs run in the background with a progress bar and a
   working Cancel button.
+* Long sequences are handled: the global aligner switches to Hirschberg's
+  linear-space algorithm past ~4M DP cells, so whole organelle genomes align
+  without exhausting memory.
+
+Measured on the simulated benchmarks in `crates/tolviewer-align/tests/`
+(release build, 8-core desktop). Accuracy is the sum-of-pairs score against
+the known true alignment:
+
+| | Clustal | MUSCLE | MAFFT |
+| --- | --- | --- | --- |
+| Low-divergence DNA (SP) | 0.94–0.97 | 0.94–0.97 | 0.94–0.97 |
+| Low-divergence protein (SP) | 0.970 | 0.974 | 0.972 |
+| Moderate divergence, ~69% id (SP) | 0.65 | 0.68 | 0.67 |
+| 200 seqs × ~1000 cols | 2.3 s | 34 s | 4.5 s |
+| 2 seqs × ~20 kb | 4.0 s | 4.0 s | 8.0 s |
+
+MUSCLE's refinement is what makes it both the most accurate on divergent sets
+and much the slowest; set refinement rounds to 0 to get its draft alignment at
+Clustal-like speed. The align dialog warns before a run that will take
+minutes.
 
 **Clean**
 * **Gblocks** (Castresana 2000) with all five parameters exposed, the original

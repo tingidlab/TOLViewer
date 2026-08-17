@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tolviewer-core",
+    "crates/tolviewer-io",
+    "crates/tolviewer-align",
+    "crates/tolviewer-clean",
+    "crates/tolviewer-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+repository = "https://github.com/tingidlab/TOLViewer"
+authors = ["Tingid Lab"]
+
+[workspace.dependencies]
+tolviewer-core = { path = "crates/tolviewer-core", version = "0.1.0" }
+tolviewer-io = { path = "crates/tolviewer-io", version = "0.1.0" }
+tolviewer-align = { path = "crates/tolviewer-align", version = "0.1.0" }
+tolviewer-clean = { path = "crates/tolviewer-clean", version = "0.1.0" }
+rayon = "1.10"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 1

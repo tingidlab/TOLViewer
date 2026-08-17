@@ -1,0 +1,20 @@
+[package]
+name = "tolviewer-app"
+description = "TOLViewer: view, edit, align and clean DNA sequences and alignments"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "tolviewer"
+path = "src/main.rs"
+
+[dependencies]
+tolviewer-core.workspace = true
+tolviewer-io.workspace = true
+tolviewer-align.workspace = true
+tolviewer-clean.workspace = true
+rayon.workspace = true

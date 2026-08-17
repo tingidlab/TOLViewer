@@ -1,0 +1,12 @@
+[package]
+name = "tolviewer-clean"
+description = "Alignment cleaning (Gblocks 0.91b/1.0 algorithm) for TOLViewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tolviewer-core.workspace = true

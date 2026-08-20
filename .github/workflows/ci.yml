@@ -65,6 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
       - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
       - name: Install Linux GUI dependencies
@@ -73,4 +74,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev \
             libxi-dev libxrandr-dev libgl1-mesa-dev
-      - run: cargo build --workspace
+      # The GUI floor is set by egui, which needs 1.95.
+      - name: Whole workspace on 1.95
+        run: cargo +1.95.0 build --workspace
+      # The engine crates depend only on each other and rayon, so they stay
+      # usable as libraries far below the GUI's floor. Keep that true.
+      - name: Library crates on 1.85
+        run: |
+          cargo +1.85.0 build \
+            -p tolviewer-core -p tolviewer-io -p tolviewer-align -p tolviewer-clean

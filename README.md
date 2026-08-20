@@ -100,8 +100,8 @@ cargo build --release
 ./target/release/tolviewer            # or target\release\tolviewer.exe
 ```
 
-You need a [Rust](https://rustup.rs) toolchain of 1.85 or newer. On Linux you
-also need the windowing development packages:
+You need a [Rust](https://rustup.rs) toolchain of 1.95 or newer, which is what
+egui requires. On Linux you also need the windowing development packages:
 
 ```sh
 # Debian / Ubuntu
@@ -156,8 +156,9 @@ tolviewer-app     the egui/eframe desktop application
 
 `tolviewer-core` has no dependencies at all, and the three engine crates depend
 only on it (plus `rayon` for parallelism), so they are usable as libraries
-independently of the GUI. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the
-API contract between them.
+independently of the GUI — and they build on Rust 1.85, well below the 1.95
+the GUI needs, which CI checks on every push.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the API contract between them.
 
 ## A note on the reimplementations
 

@@ -1,0 +1,19 @@
+[package]
+name = "tolviewer-library"
+description = "Project library for TOLViewer: folders of sequence files, primers, concatenation and the in-situ save policy"
+version.workspace = true
+edition.workspace = true
+# Library-only, like the other engine crates: no egui, so no 1.95 floor.
+rust-version = "1.85"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tolviewer-core.workspace = true
+tolviewer-io.workspace = true
+
+[dev-dependencies]
+# The workflow test aligns what it gathers, because "select these reads and
+# align them" is the point of the library and is worth testing end to end.
+tolviewer-align.workspace = true

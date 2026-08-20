@@ -25,6 +25,10 @@ pub enum Format {
     Msf,
     /// GenBank flat file. Read only.
     Genbank,
+    /// Applied Biosystems `.ab1` Sanger trace. Read only, and one read per
+    /// file; the chromatogram behind the calls is available through
+    /// [`crate::ab1`].
+    Ab1,
 }
 
 const ALL: &[Format] = &[
@@ -37,6 +41,7 @@ const ALL: &[Format] = &[
     Format::Stockholm,
     Format::Msf,
     Format::Genbank,
+    Format::Ab1,
 ];
 
 impl Format {
@@ -52,6 +57,7 @@ impl Format {
             Format::Stockholm => "Stockholm",
             Format::Msf => "MSF",
             Format::Genbank => "GenBank",
+            Format::Ab1 => "AB1 trace",
         }
     }
 
@@ -67,6 +73,7 @@ impl Format {
             Format::Stockholm => &["sto", "stk", "stockholm", "sth"],
             Format::Msf => &["msf"],
             Format::Genbank => &["gb", "gbk", "genbank", "gbff"],
+            Format::Ab1 => &["ab1", "abi", "fsa"],
         }
     }
 
@@ -75,9 +82,9 @@ impl Format {
         true
     }
 
-    /// MSF and GenBank are read-only; everything else round-trips.
+    /// MSF, GenBank and AB1 are read-only; everything else round-trips.
     pub fn can_write(self) -> bool {
-        !matches!(self, Format::Msf | Format::Genbank)
+        !matches!(self, Format::Msf | Format::Genbank | Format::Ab1)
     }
 
     /// All formats, for menu construction.
@@ -104,6 +111,11 @@ impl Format {
     /// Guess from the first bytes of the file. Prefer this over the extension
     /// when they disagree and the content is unambiguous.
     pub fn sniff(bytes: &[u8]) -> Option<Format> {
+        // AB1 is the only binary format here, and it is the only one with a
+        // magic number, so it is settled before anything is decoded as text.
+        if bytes.starts_with(b"ABIF") {
+            return Some(Format::Ab1);
+        }
         // Only the head matters, and callers may hand us a whole genome.
         let head = &bytes[..bytes.len().min(64 * 1024)];
         let text = decode(head);
@@ -258,6 +270,15 @@ mod tests {
     fn read_write_capability_flags() {
         assert!(Format::Msf.can_read() && !Format::Msf.can_write());
         assert!(Format::Genbank.can_read() && !Format::Genbank.can_write());
+        assert!(Format::Ab1.can_read() && !Format::Ab1.can_write());
         assert!(Format::Fasta.can_write());
+    }
+
+    #[test]
+    fn ab1_is_sniffed_from_its_magic_number() {
+        assert_eq!(Format::sniff(b"ABIF\x00\x65\x00\x00"), Some(Format::Ab1));
+        assert_eq!(Format::from_path(Path::new("read.ab1")), Some(Format::Ab1));
+        // The magic is only the magic at the very start.
+        assert_eq!(Format::sniff(b">a ABIF\nACGT\n"), Some(Format::Fasta));
     }
 }

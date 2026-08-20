@@ -8,7 +8,9 @@
 
 pub mod app;
 pub mod canvas;
+pub mod chromatogram;
 pub mod document;
+pub mod library;
 pub mod selection;
 pub mod tasks;
 pub mod theme;

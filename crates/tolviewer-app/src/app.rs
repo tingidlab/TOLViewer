@@ -7,9 +7,14 @@ use tolviewer_align::{AlignParams, Engine, MatrixChoice, TreeMethod};
 use tolviewer_clean::{GapPolicy, GblocksParams, GblocksResult};
 use tolviewer_core::{Alignment, Alphabet, EditOp, Error, Result, Sequence, GAP};
 use tolviewer_io::{Format, WriteOptions};
+use tolviewer_library::{
+    concat, primer, store, ConcatResult, EntryKind, NodeId, SaveChoice, SaveTarget,
+};
 
 use crate::canvas::{AlignmentCanvas, CanvasAction, ViewSettings, MAX_ZOOM, MIN_ZOOM};
+use crate::chromatogram::TraceView;
 use crate::document::Document;
+use crate::library::{LibraryState, PendingSave};
 use crate::selection::SelectionMode;
 use crate::tasks::{self, Task, TaskOutcome};
 use crate::theme::ColorScheme;
@@ -34,6 +39,18 @@ pub(crate) struct Dialogs {
     rename: Option<(usize, String)>,
     /// Documents the user must decide about before quitting.
     confirm_close: Option<usize>,
+    /// A new library folder being named.
+    new_folder: Option<String>,
+    /// The concatenation dialog, holding the preview it is showing.
+    concat: bool,
+    /// The primer list editor.
+    primers: bool,
+    /// The primer trimming settings.
+    trim: bool,
+    /// The result of the last primer mapping run, as lines to show.
+    primer_report: Option<Vec<String>>,
+    /// A finished concatenation waiting for the user to keep or discard it.
+    concat_result: Option<Box<ConcatResult>>,
 }
 
 /// Settings persisted between runs.
@@ -44,6 +61,9 @@ struct Persisted {
     recent: Vec<PathBuf>,
     export_format: String,
     write: PersistedWriteOptions,
+    /// The library that was open last, reopened on the next run.
+    library: Option<PathBuf>,
+    library_visible: bool,
 }
 
 impl Default for Persisted {
@@ -53,6 +73,8 @@ impl Default for Persisted {
             recent: Vec::new(),
             export_format: "FASTA".to_string(),
             write: PersistedWriteOptions::default(),
+            library: None,
+            library_visible: true,
         }
     }
 }
@@ -116,6 +138,12 @@ pub struct TolViewerApp {
     allow_exit: bool,
     /// Set while a quit is waiting on the unsaved-changes dialog.
     quit_pending: bool,
+    /// The project library and the panel's state.
+    lib: LibraryState,
+    /// A save that would land on the lab's own file, waiting to be answered.
+    pending_save: Option<PendingSave>,
+    /// Text being typed into the new-primer fields.
+    primer_draft: (String, String),
 }
 
 impl TolViewerApp {
@@ -145,9 +173,25 @@ impl TolViewerApp {
             goto_input: String::new(),
             allow_exit: false,
             quit_pending: false,
+            lib: LibraryState { visible: persisted.library_visible, ..LibraryState::default() },
+            pending_save: None,
+            primer_draft: (String::new(), String::new()),
         };
+        // Reopen the library that was in use last, quietly: a missing or moved
+        // one is not worth an error on startup.
+        if let Some(path) = persisted.library.filter(|p| p.exists()) {
+            if let Ok(library) = store::load(&path) {
+                app.lib.library = library;
+            }
+        }
+        // A `.tolvlib` on the command line opens as a library; everything else
+        // opens as a document.
         for path in paths {
-            app.open_path(&path);
+            if path.extension().is_some_and(|e| e == store::EXTENSION) {
+                app.open_library(&path);
+            } else {
+                app.open_path(&path);
+            }
         }
         app
     }
@@ -200,6 +244,11 @@ impl TolViewerApp {
     }
 
     fn save(&mut self, save_as: bool) {
+        // A document opened from the library is the library's to write, and
+        // that may mean asking first rather than writing at all.
+        if self.save_through_library(save_as) {
+            return;
+        }
         let Some(doc) = self.doc() else { return };
         let format = doc.format;
         let existing = doc.path.clone();
@@ -237,6 +286,9 @@ impl TolViewerApp {
                 doc.path = Some(path.clone());
                 doc.format = format;
                 doc.mark_saved();
+                // "Save as" moved the document somewhere the user chose, so it
+                // is no longer the library entry's own file.
+                doc.origin = None;
                 self.remember(&path);
                 self.info(format!("saved {}", path.display()));
                 if padded {
@@ -259,6 +311,7 @@ impl TolViewerApp {
         }
         let closing = self.current;
         self.docs.remove(closing);
+        self.lib.document_closed(closing);
         self.tasks.retain(|t| t.doc != closing);
         for task in &mut self.tasks {
             if task.doc > closing {
@@ -772,6 +825,8 @@ impl eframe::App for TolViewerApp {
             view: self.view.clone(),
             recent: self.recent.clone(),
             export_format: self.export_format.name().to_string(),
+            library: self.lib.library.path.clone(),
+            library_visible: self.lib.visible,
             write: PersistedWriteOptions {
                 line_width: self.write_options.line_width,
                 interleaved: self.write_options.interleaved,
@@ -795,6 +850,8 @@ impl eframe::App for TolViewerApp {
         crate::ui::tab_bar(self, ui);
         crate::ui::status_bar(self, ui);
         crate::ui::side_panel(self, ui);
+        crate::ui::library_panel(self, ui);
+        crate::ui::trace_panel(self, ui);
         crate::ui::dialogs(self, ctx);
 
         let panel_fill = ui.visuals().panel_fill;
@@ -1099,6 +1156,842 @@ impl Dialogs {
     }
     pub(crate) fn confirm_close(&mut self) -> &mut Option<usize> {
         &mut self.confirm_close
+    }
+    pub(crate) fn new_folder(&mut self) -> &mut Option<String> {
+        &mut self.new_folder
+    }
+    pub(crate) fn concat(&mut self) -> &mut bool {
+        &mut self.concat
+    }
+    pub(crate) fn primers(&mut self) -> &mut bool {
+        &mut self.primers
+    }
+    pub(crate) fn trim(&mut self) -> &mut bool {
+        &mut self.trim
+    }
+    pub(crate) fn primer_report(&mut self) -> &mut Option<Vec<String>> {
+        &mut self.primer_report
+    }
+}
+
+// ---- the project library -------------------------------------------------
+//
+// Everything here goes through `tolviewer_library::Library`, which owns the
+// rule that the lab's files are not written to without being asked. The app's
+// job is to raise that question at the right moment and to keep the tree, the
+// open documents and the selection in step with each other.
+
+impl TolViewerApp {
+    pub(crate) fn library(&self) -> &LibraryState {
+        &self.lib
+    }
+
+    pub(crate) fn library_mut(&mut self) -> &mut LibraryState {
+        &mut self.lib
+    }
+
+    /// Discard the current library and start an empty one, asking first if it
+    /// has unsaved changes.
+    pub(crate) fn cmd_library_new(&mut self) {
+        if self.lib.library.is_dirty() && !self.confirm_discard_library() {
+            return;
+        }
+        self.lib = LibraryState { visible: true, ..LibraryState::default() };
+        self.info("started an empty library");
+    }
+
+    pub(crate) fn cmd_library_open(&mut self) {
+        if self.lib.library.is_dirty() && !self.confirm_discard_library() {
+            return;
+        }
+        let dialog = rfd::FileDialog::new()
+            .set_title("Open library")
+            .add_filter("TOLViewer library", &[store::EXTENSION]);
+        if let Some(path) = dialog.pick_file() {
+            self.open_library(&path);
+        }
+    }
+
+    fn open_library(&mut self, path: &Path) {
+        match store::load(path) {
+            Ok(library) => {
+                let entries = library.entries_under(None).len();
+                let broken = library.broken_entries();
+                self.lib = LibraryState { library, visible: true, ..LibraryState::default() };
+                self.remember(path);
+                self.info(format!(
+                    "opened library '{}' ({entries} sequences)",
+                    self.lib.library.name
+                ));
+                if !broken.is_empty() {
+                    // Worth saying loudly: the tree will look complete, but
+                    // those entries cannot be opened.
+                    let names: Vec<String> =
+                        broken.iter().take(4).map(|&id| self.lib.library.path_of(id)).collect();
+                    self.error(format!(
+                        "{} of the library's files are missing and are marked in the tree: {}{}",
+                        broken.len(),
+                        names.join(", "),
+                        if broken.len() > 4 { ", …" } else { "" }
+                    ));
+                }
+            }
+            Err(e) => self.error(format!("could not open {}: {e}", path.display())),
+        }
+    }
+
+    /// A last chance before an unsaved library is thrown away.
+    ///
+    /// This is a modal from the OS rather than an egui window because it has to
+    /// answer before the command continues; the alternative is a state machine
+    /// for a question the user answers in under a second.
+    fn confirm_discard_library(&mut self) -> bool {
+        let answer = rfd::MessageDialog::new()
+            .set_title("Unsaved library")
+            .set_description(format!(
+                "'{}' has changes that have not been saved. The sequence files \
+                 themselves are safe — only the folders and notes would be lost.",
+                self.lib.library.name
+            ))
+            .set_buttons(rfd::MessageButtons::OkCancelCustom(
+                "Discard".to_string(),
+                "Cancel".to_string(),
+            ))
+            .show();
+        matches!(answer, rfd::MessageDialogResult::Ok)
+    }
+
+    pub(crate) fn cmd_library_save(&mut self, save_as: bool) {
+        let existing = self.lib.library.path.clone();
+        let path = match (save_as, existing) {
+            (false, Some(path)) => path,
+            (_, existing) => {
+                let mut dialog = rfd::FileDialog::new()
+                    .set_title("Save library")
+                    .add_filter("TOLViewer library", &[store::EXTENSION]);
+                match &existing {
+                    Some(p) => {
+                        if let Some(dir) = p.parent() {
+                            dialog = dialog.set_directory(dir);
+                        }
+                        dialog = dialog
+                            .set_file_name(p.file_name().unwrap_or_default().to_string_lossy());
+                    }
+                    None => {
+                        dialog = dialog.set_file_name(format!(
+                            "{}.{}",
+                            sanitize_file_name(&self.lib.library.name),
+                            store::EXTENSION
+                        ));
+                    }
+                }
+                match dialog.save_file() {
+                    Some(p) => p,
+                    None => return,
+                }
+            }
+        };
+        match store::save(&mut self.lib.library, &path) {
+            Ok(()) => {
+                self.remember(&path);
+                self.info(format!("saved library to {}", path.display()));
+            }
+            Err(e) => self.error(format!("could not save the library: {e}")),
+        }
+    }
+
+    /// Add a folder under whatever is selected.
+    pub(crate) fn cmd_library_add_folder(&mut self, name: &str) {
+        let parent = self.lib.insertion_parent();
+        let name = if name.trim().is_empty() { "New folder" } else { name.trim() };
+        match self.lib.library.add_folder(parent, name) {
+            Ok(id) => {
+                self.expand_ancestors(id);
+                self.lib.select_only(id);
+                self.lib.renaming = None;
+            }
+            Err(e) => self.error(e.to_string()),
+        }
+    }
+
+    /// Add files to the library. They are read once, to see what they hold, and
+    /// otherwise left exactly where they are.
+    pub(crate) fn cmd_library_add_files(&mut self) {
+        let mut dialog = rfd::FileDialog::new().set_title("Add sequences to the library");
+        for format in Format::all().iter().filter(|f| f.can_read()) {
+            dialog = dialog.add_filter(format.name(), format.extensions());
+        }
+        dialog = dialog.add_filter("All files", &["*"]);
+        let Some(paths) = dialog.pick_files() else { return };
+        self.add_paths_to_library(&paths);
+    }
+
+    /// Add every readable sequence file in a directory tree.
+    pub(crate) fn cmd_library_add_folder_of_files(&mut self) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Add a folder of sequences").pick_folder()
+        else {
+            return;
+        };
+        let mut paths = Vec::new();
+        collect_files(&dir, 0, &mut paths);
+        if paths.is_empty() {
+            self.error(format!("no sequence files under {}", dir.display()));
+            return;
+        }
+        paths.sort();
+        // Mirror the directory as a folder, so a plate of traces arrives named.
+        let parent = self.lib.insertion_parent();
+        let name = dir
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Imported".to_string());
+        match self.lib.library.add_folder(parent, name) {
+            Ok(folder) => {
+                self.lib.select_only(folder);
+                self.add_paths_to_library(&paths);
+            }
+            Err(e) => self.error(e.to_string()),
+        }
+    }
+
+    fn add_paths_to_library(&mut self, paths: &[PathBuf]) {
+        let parent = self.lib.insertion_parent();
+        let mut added = 0;
+        let mut failed: Vec<String> = Vec::new();
+        let mut last = None;
+        for path in paths {
+            match self.lib.library.add_file(parent, path) {
+                Ok(id) => {
+                    added += 1;
+                    last = Some(id);
+                }
+                Err(e) => failed.push(format!("{}: {e}", path.display())),
+            }
+        }
+        if let Some(id) = last {
+            self.expand_ancestors(id);
+            self.lib.select_only(id);
+        }
+        if added > 0 {
+            self.info(format!("added {added} file(s) to the library"));
+        }
+        for message in failed.iter().take(4) {
+            self.error(format!("could not add {message}"));
+        }
+        if failed.len() > 4 {
+            self.error(format!("…and {} more could not be added", failed.len() - 4));
+        }
+    }
+
+    /// Open every folder above `id` so a newly added item is actually visible.
+    fn expand_ancestors(&mut self, id: NodeId) {
+        let mut at = self.lib.library.get(id).and_then(|n| n.parent);
+        while let Some(current) = at {
+            if let Some(folder) = self.lib.library.get_mut(current).and_then(|n| n.folder_mut()) {
+                folder.expanded = true;
+            }
+            at = self.lib.library.get(current).and_then(|n| n.parent);
+        }
+    }
+
+    /// Take the selection out of the library. The files stay where they are;
+    /// this is filing, not deleting, and the wording in the UI says so.
+    pub(crate) fn cmd_library_remove(&mut self) {
+        let selected = self.lib.selected.clone();
+        if selected.is_empty() {
+            return;
+        }
+        let mut removed = 0;
+        for id in selected {
+            removed += self.lib.library.remove(id).len();
+        }
+        self.lib.prune();
+        self.info(format!("removed {removed} item(s) from the library (the files are untouched)"));
+    }
+
+    pub(crate) fn cmd_library_rename(&mut self, id: NodeId, name: &str) {
+        if let Err(e) = self.lib.library.rename(id, name.trim()) {
+            self.error(e.to_string());
+        }
+    }
+
+    /// Open a library entry in a tab, reusing the tab if it is already open.
+    pub(crate) fn cmd_library_open_entry(&mut self, id: NodeId) {
+        if let Some(doc) = self.lib.document_for(id) {
+            if doc < self.docs.len() {
+                self.current = doc;
+                return;
+            }
+        }
+        let Some(entry) = self.lib.library.entry(id) else { return };
+        let format = entry.format;
+        let is_trace = entry.kind == EntryKind::Trace;
+        let path = entry.source_path().to_path_buf();
+        let alignment = match entry.load() {
+            Ok(a) => a,
+            Err(e) => {
+                self.error(format!("could not open {}: {e}", self.lib.library.path_of(id)));
+                return;
+            }
+        };
+        // A trace brings its chromatogram along; anything else is just rows.
+        let trace = if is_trace {
+            match self.lib.library.entry(id).expect("checked above").load_trace() {
+                Ok(t) => Some(TraceView::new(t, 0)),
+                Err(e) => {
+                    self.error(format!("the sequence opened but the chromatogram did not: {e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let rows = alignment.len();
+        let doc = Document::new(alignment, Some(path), format).from_library(id, trace);
+        self.docs.push(doc);
+        self.current = self.docs.len() - 1;
+        self.lib.note_open(id, self.current);
+        self.info(format!("opened {} ({rows} sequence(s))", self.lib.library.path_of(id)));
+    }
+
+    /// Reverse complement the selected entries. Nothing is written: the library
+    /// records the orientation and applies it whenever the entry is read.
+    pub(crate) fn cmd_library_reverse(&mut self) {
+        let entries = self.lib.selected_entries();
+        if entries.is_empty() {
+            self.error("select the sequences to reverse");
+            return;
+        }
+        let mut flipped = 0;
+        for id in &entries {
+            let now = self.lib.library.entry(*id).map(|e| e.reversed).unwrap_or(false);
+            match self.lib.library.set_reversed(*id, !now) {
+                Ok(()) => flipped += 1,
+                Err(e) => self.error(e.to_string()),
+            }
+        }
+        // A document already showing one of them is now out of date.
+        self.reopen_open_entries(&entries);
+        self.info(format!("reversed {flipped} sequence(s); the files themselves are unchanged"));
+    }
+
+    /// Reload any open tab whose entry has just changed underneath it.
+    fn reopen_open_entries(&mut self, entries: &[NodeId]) {
+        for &id in entries {
+            let Some(doc_index) = self.lib.document_for(id) else { continue };
+            let Some(entry) = self.lib.library.entry(id) else { continue };
+            match entry.load() {
+                Ok(alignment) => {
+                    let trace = (entry.kind == EntryKind::Trace)
+                        .then(|| entry.load_trace().ok().map(|t| TraceView::new(t, 0)))
+                        .flatten();
+                    let result = match self.docs.get_mut(doc_index) {
+                        Some(doc) => {
+                            doc.trace = trace;
+                            doc.replace("reverse complement", alignment)
+                        }
+                        None => Ok(()),
+                    };
+                    self.report(result);
+                }
+                Err(e) => self.error(e.to_string()),
+            }
+        }
+    }
+
+    /// Gather the selected sequences into a new tab and align them.
+    ///
+    /// This is the point of being able to select across folders: a specimen's
+    /// forward and reverse reads live in different places and get aligned
+    /// together.
+    pub(crate) fn cmd_library_align_selection(&mut self, ctx: &egui::Context) {
+        let entries = self.lib.selected_entries();
+        if entries.is_empty() {
+            self.error("select the sequences to align");
+            return;
+        }
+        let name = match self.lib.only_selected().map(|id| self.lib.library.path_of(id)) {
+            Some(path) => path,
+            None => format!("{} sequences", entries.len()),
+        };
+        let (alignment, failed) = self.lib.library.gather(&entries, &name);
+        for (id, e) in failed.iter().take(4) {
+            self.error(format!("skipped {}: {e}", self.lib.library.path_of(*id)));
+        }
+        if alignment.len() < 2 {
+            self.error("aligning needs at least two sequences");
+            return;
+        }
+        let rows = alignment.len();
+        self.docs.push(Document::new(alignment, None, Format::Fasta));
+        self.current = self.docs.len() - 1;
+        self.info(format!("aligning {rows} sequences from the library"));
+        self.start_align(ctx, false);
+    }
+
+    /// Open the selected sequences in a tab without aligning them, so they can
+    /// be looked at side by side.
+    pub(crate) fn cmd_library_open_selection(&mut self) {
+        let entries = self.lib.selected_entries();
+        if entries.is_empty() {
+            return;
+        }
+        if let [one] = entries.as_slice() {
+            self.cmd_library_open_entry(*one);
+            return;
+        }
+        let name = format!("{} sequences", entries.len());
+        let (alignment, failed) = self.lib.library.gather(&entries, &name);
+        for (id, e) in failed.iter().take(4) {
+            self.error(format!("skipped {}: {e}", self.lib.library.path_of(*id)));
+        }
+        if alignment.is_empty() {
+            return;
+        }
+        self.docs.push(Document::new(alignment, None, Format::Fasta));
+        self.current = self.docs.len() - 1;
+    }
+
+    /// Put the current document's selected rows into the library as entries of
+    /// their own.
+    ///
+    /// The alignment is not touched and nothing is copied: each new entry reads
+    /// its row back out of the same file. Saving an edit to one will therefore
+    /// insist on a copy, because writing a single row back over a multiple
+    /// alignment would destroy the rest of it.
+    pub(crate) fn cmd_library_extract(&mut self) {
+        let Some(doc) = self.doc() else { return };
+        let rows = doc.target_rows();
+        if rows.is_empty() {
+            self.error("select the sequences to extract");
+            return;
+        }
+        let ids: Vec<String> = rows
+            .iter()
+            .filter_map(|&r| doc.alignment.sequences.get(r))
+            .map(|s| s.id.clone())
+            .collect();
+        let source = match doc.origin {
+            Some(id) => id,
+            None => {
+                // Not from the library yet. If it has been saved, file the file
+                // itself first so the extracts have something to point at.
+                let Some(path) = doc.path.clone() else {
+                    self.error(
+                        "save this alignment first — an extracted sequence refers back to \
+                         the file it came from",
+                    );
+                    return;
+                };
+                if doc.is_dirty() {
+                    self.error(
+                        "save this alignment first — the extracts read from the file, \
+                         so they would not see the unsaved changes",
+                    );
+                    return;
+                }
+                let parent = self.lib.insertion_parent();
+                match self.lib.library.add_file(parent, &path) {
+                    Ok(id) => {
+                        if let Some(doc) = self.doc_mut() {
+                            doc.origin = Some(id);
+                        }
+                        self.lib.note_open(id, self.current);
+                        id
+                    }
+                    Err(e) => {
+                        self.error(e.to_string());
+                        return;
+                    }
+                }
+            }
+        };
+        let parent = self.lib.library.get(source).and_then(|n| n.parent);
+        let mut added = 0;
+        let mut last = None;
+        for id in ids {
+            match self.lib.library.add_selection(parent, source, vec![id.clone()], &id) {
+                Ok(node) => {
+                    added += 1;
+                    last = Some(node);
+                }
+                Err(e) => self.error(e.to_string()),
+            }
+        }
+        if let Some(id) = last {
+            self.expand_ancestors(id);
+            self.lib.select_only(id);
+        }
+        self.info(format!("extracted {added} sequence(s) into the library"));
+    }
+
+    /// Map the project's primers onto the selected sequences and report where
+    /// they bind. Nothing is changed; this is the look before the trim.
+    pub(crate) fn cmd_library_map_primers(&mut self) {
+        let entries = self.lib.selected_entries();
+        if entries.is_empty() {
+            self.error("select the sequences to map primers onto");
+            return;
+        }
+        if self.lib.library.primers.is_empty() {
+            self.error("the library has no primers yet — add them in Library ▸ Primers…");
+            return;
+        }
+        let fraction = self.lib.trim.max_mismatch_fraction;
+        let mut report = Vec::new();
+        for id in entries {
+            let name = self.lib.library.path_of(id);
+            match self.lib.library.load(id) {
+                Ok(alignment) => {
+                    for seq in &alignment.sequences {
+                        let residues = seq.ungapped();
+                        let hits = self.lib.library.primers.map(&residues, fraction);
+                        if hits.is_empty() {
+                            report.push(format!("{name} / {}: no primer found", seq.id));
+                        }
+                        for hit in hits {
+                            report.push(format!(
+                                "{name} / {}: {} {} at {}–{} ({:.0}% identity)",
+                                seq.id,
+                                hit.name,
+                                hit.strand.name(),
+                                hit.range.start + 1,
+                                hit.range.end,
+                                hit.identity() * 100.0
+                            ));
+                        }
+                    }
+                }
+                Err(e) => report.push(format!("{name}: {e}")),
+            }
+        }
+        self.dialogs.primer_report = Some(report);
+    }
+
+    /// Trim the selected sequences back to the amplicon.
+    ///
+    /// The trim is applied to an open tab as an ordinary undoable edit, not
+    /// written to disk. That is deliberate: the result goes through the same
+    /// save question as any other edit, so a trim can be looked at, undone, or
+    /// diverted to a copy before it touches the lab's file.
+    pub(crate) fn cmd_library_trim_primers(&mut self) {
+        let entries = self.lib.selected_entries();
+        if entries.is_empty() {
+            self.error("select the sequences to trim");
+            return;
+        }
+        if self.lib.library.primers.is_empty() {
+            self.error("the library has no primers yet — add them in Library ▸ Primers…");
+            return;
+        }
+        let options = self.lib.trim.clone();
+        let mut trimmed = 0;
+        let mut untouched = 0;
+        let mut report: Vec<String> = Vec::new();
+        for id in entries {
+            self.cmd_library_open_entry(id);
+            let Some(doc_index) = self.lib.document_for(id) else { continue };
+            let name = self.lib.library.path_of(id);
+            let Some(doc) = self.docs.get(doc_index) else { continue };
+
+            let mut next = doc.alignment.clone();
+            let mut changed = false;
+            for seq in &mut next.sequences {
+                let residues = seq.ungapped();
+                let plan = primer::plan_trim(&self.lib.library.primers, &residues, &options);
+                if !plan.trims_anything() {
+                    report.push(format!("{name} / {}: no primer found", seq.id));
+                    continue;
+                }
+                report.push(format!("{name} / {}: {}", seq.id, plan.describe(residues.len())));
+                seq.residues = residues[plan.range].to_vec();
+                // Quality is per residue, so it has to be cut the same way; a
+                // stale quality track would colour the wrong bases.
+                seq.quality = None;
+                changed = true;
+            }
+            if !changed {
+                untouched += 1;
+                continue;
+            }
+            if let Some(doc) = self.docs.get_mut(doc_index) {
+                match doc.replace("trim primers", next) {
+                    Ok(()) => trimmed += 1,
+                    Err(e) => self.error(e.to_string()),
+                }
+            }
+        }
+        self.dialogs.primer_report = Some(report);
+        if trimmed > 0 {
+            self.info(format!(
+                "trimmed {trimmed} sequence set(s); nothing is written until you save, \
+                 and you will be asked before any original file is replaced"
+            ));
+        }
+        if untouched > 0 {
+            self.info(format!("{untouched} had no primer to trim and were left alone"));
+        }
+    }
+
+    /// Concatenate the selected alignments into a supermatrix.
+    pub(crate) fn cmd_library_concatenate(&mut self) {
+        let entries = self.lib.selected_entries();
+        if entries.len() < 2 {
+            self.error("select at least two alignments to concatenate");
+            return;
+        }
+        let mut alignments = Vec::new();
+        for id in &entries {
+            match self.lib.library.load(*id) {
+                Ok(mut alignment) => {
+                    // Name the partition after the tree, not the file, since
+                    // that is what the user arranged.
+                    if let Some(node) = self.lib.library.get(*id) {
+                        alignment.name = node.name.clone();
+                    }
+                    alignments.push(alignment);
+                }
+                Err(e) => {
+                    self.error(format!("{}: {e}", self.lib.library.path_of(*id)));
+                    return;
+                }
+            }
+        }
+        let borrowed: Vec<&Alignment> = alignments.iter().collect();
+        match concat::concatenate(&borrowed, &self.lib.concat) {
+            Ok(result) => {
+                self.info(format!(
+                    "concatenated {} alignments: {} samples, {} columns ({} complete)",
+                    borrowed.len(),
+                    result.alignment.len(),
+                    result.alignment.width(),
+                    result.complete
+                ));
+                self.dialogs.concat_result = Some(Box::new(result));
+                self.dialogs.concat = true;
+            }
+            Err(e) => self.error(e.to_string()),
+        }
+    }
+
+    /// Keep the concatenation the dialog is showing, as a new tab.
+    pub(crate) fn cmd_keep_concatenation(&mut self) {
+        let Some(result) = self.dialogs.concat_result.take() else { return };
+        self.docs.push(Document::new(result.alignment, None, Format::Fasta));
+        self.current = self.docs.len() - 1;
+        self.dialogs.concat = false;
+    }
+
+    // ---- the in-situ save policy ---------------------------------------
+
+    /// Save a document that came from the library.
+    ///
+    /// Returns `true` when it dealt with the save, so the ordinary file-based
+    /// path does not also run. A save that would land on the lab's own file
+    /// puts up a question instead of writing.
+    fn save_through_library(&mut self, save_as: bool) -> bool {
+        let Some(doc) = self.doc() else { return false };
+        let Some(entry) = doc.origin else { return false };
+        if save_as {
+            // "Save as" is the user choosing a destination themselves; let the
+            // ordinary dialog handle it, and detach the document from the entry
+            // so later saves do not surprise them.
+            return false;
+        }
+        let target = match self.lib.library.save_target(entry) {
+            Ok(t) => t,
+            Err(e) => {
+                self.error(e.to_string());
+                return true;
+            }
+        };
+        if !target.needs_confirmation() {
+            self.write_library_entry(self.current, entry, SaveChoice::Overwrite);
+            return true;
+        }
+        let copy_to = match &target {
+            SaveTarget::MustCopy(path, _) => path.clone(),
+            _ => self
+                .lib
+                .library
+                .entry(entry)
+                .map(|e| e.suggested_copy())
+                .unwrap_or_else(|| target.path().to_path_buf()),
+        };
+        self.pending_save = Some(PendingSave {
+            doc: self.current,
+            entry,
+            target,
+            copy_to,
+            name: self.lib.library.path_of(entry),
+        });
+        true
+    }
+
+    /// Carry out a save the user has answered for.
+    pub(crate) fn cmd_answer_save(&mut self, choice: SaveChoice) {
+        let Some(pending) = self.pending_save.take() else { return };
+        self.write_library_entry(pending.doc, pending.entry, choice);
+    }
+
+    pub(crate) fn cmd_cancel_save(&mut self) {
+        self.pending_save = None;
+        // A save the user backed out of must not let a pending quit through.
+        self.quit_pending = false;
+    }
+
+    fn write_library_entry(&mut self, doc_index: usize, entry: NodeId, choice: SaveChoice) {
+        let Some(doc) = self.docs.get(doc_index) else { return };
+        let alignment = doc.alignment.clone();
+        let options = self.write_options.to_options();
+        match self.lib.library.save_entry(entry, &alignment, choice, &options) {
+            Ok(path) => {
+                if let Some(doc) = self.docs.get_mut(doc_index) {
+                    doc.mark_saved();
+                    doc.path = Some(path.clone());
+                }
+                self.info(format!("saved {}", path.display()));
+            }
+            Err(e) => self.error(format!("could not save: {e}")),
+        }
+    }
+
+    /// Move the caret to a residue of the trace's row, as clicking the
+    /// chromatogram does. Takes an ungapped residue index and finds the column
+    /// it sits in, so it works on a row that has been aligned since.
+    pub(crate) fn cmd_goto_residue(&mut self, residue: usize) {
+        let Some(doc) = self.doc_mut() else { return };
+        let row = doc.trace.as_ref().map(|t| t.row).unwrap_or(0);
+        let Some(seq) = doc.alignment.sequences.get(row) else { return };
+        let mut seen = 0;
+        let mut column = None;
+        for (col, &c) in seq.residues.iter().enumerate() {
+            if tolviewer_core::is_gap(c) {
+                continue;
+            }
+            if seen == residue {
+                column = Some(col);
+                break;
+            }
+            seen += 1;
+        }
+        let Some(col) = column else { return };
+        doc.selection.place(crate::selection::Cell::new(row, col), SelectionMode::Cells);
+        doc.scroll_col = col as f32;
+    }
+
+    /// Replace one base call from the chromatogram.
+    ///
+    /// This goes through the ordinary undo stack, and the trace itself is left
+    /// alone: the signal is the evidence, and a corrected call should not erase
+    /// what the instrument actually saw.
+    pub(crate) fn cmd_recall(&mut self, residue: usize, base: u8) {
+        self.cmd_goto_residue(residue);
+        let Some(doc) = self.doc() else { return };
+        let cell = doc.selection.cursor;
+        self.edit(EditOp::SetResidue { row: cell.row, col: cell.col, residue: base });
+    }
+
+    pub(crate) fn concat_result_view(&self) -> Option<&ConcatResult> {
+        self.dialogs.concat_result.as_deref()
+    }
+
+    pub(crate) fn clear_concatenation(&mut self) {
+        self.dialogs.concat_result = None;
+    }
+
+    pub(crate) fn pending_save(&self) -> Option<&PendingSave> {
+        self.pending_save.as_ref()
+    }
+
+    pub(crate) fn pending_save_mut(&mut self) -> Option<&mut PendingSave> {
+        self.pending_save.as_mut()
+    }
+
+    /// Choose a copy destination with a file dialog, from inside the save
+    /// question.
+    pub(crate) fn cmd_browse_for_copy(&mut self) {
+        let Some(pending) = &self.pending_save else { return };
+        let mut dialog = rfd::FileDialog::new().set_title("Save a copy");
+        if let Some(dir) = pending.copy_to.parent() {
+            dialog = dialog.set_directory(dir);
+        }
+        if let Some(name) = pending.copy_to.file_name() {
+            dialog = dialog.set_file_name(name.to_string_lossy());
+        }
+        for f in Format::all().iter().filter(|f| f.can_write()) {
+            dialog = dialog.add_filter(f.name(), f.extensions());
+        }
+        if let Some(path) = dialog.save_file() {
+            if let Some(pending) = &mut self.pending_save {
+                pending.copy_to = path;
+            }
+        }
+    }
+
+    // ---- primers -------------------------------------------------------
+
+    pub(crate) fn primer_draft_mut(&mut self) -> &mut (String, String) {
+        &mut self.primer_draft
+    }
+
+    pub(crate) fn cmd_add_primer(&mut self) {
+        let (name, sequence) = self.primer_draft.clone();
+        let name =
+            if name.trim().is_empty() { "primer".to_string() } else { name.trim().to_string() };
+        match tolviewer_library::Primer::new(name, &sequence) {
+            Ok(p) => {
+                self.lib.library.primers.push(p);
+                // Bumping the revision here is what makes the library dirty, so
+                // a new primer is a reason to save.
+                self.lib.library.touch();
+                self.primer_draft = (String::new(), String::new());
+            }
+            Err(e) => self.error(e.to_string()),
+        }
+    }
+
+    pub(crate) fn cmd_remove_primer(&mut self, index: usize) {
+        self.lib.library.primers.remove(index);
+        self.lib.library.touch();
+    }
+}
+
+/// Turn a library name into something usable as a file name.
+fn sanitize_file_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect();
+    let trimmed = cleaned.trim_matches('-');
+    if trimmed.is_empty() {
+        "library".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Every file under `dir` that TOLViewer can read, to a bounded depth.
+///
+/// The depth limit is what stops "add a folder" from walking a whole home
+/// directory when someone picks the wrong one.
+fn collect_files(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    const MAX_DEPTH: usize = 6;
+    const MAX_FILES: usize = 5000;
+    if depth > MAX_DEPTH || out.len() >= MAX_FILES {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(&path, depth + 1, out);
+        } else if Format::from_path(&path).is_some_and(|f| f.can_read()) {
+            out.push(path);
+        }
+        if out.len() >= MAX_FILES {
+            return;
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! Readers and writers for the sequence and alignment formats a phylogenetics
 //! lab actually has on disk: FASTA, FASTQ, PHYLIP (strict and relaxed), NEXUS,
-//! Clustal, Stockholm, GCG MSF and GenBank.
+//! Clustal, Stockholm, GCG MSF, GenBank and Applied Biosystems `.ab1` traces.
 //!
 //! Everything funnels through [`tolviewer_core::Alignment`]:
 //!
@@ -28,8 +28,16 @@
 //!   replacing the tail with a counter).
 //! * Stockholm `#=G*` annotation and NEXUS blocks other than `data` are dropped
 //!   on read, so they cannot be written back.
-//! * MSF and GenBank are read-only ([`Format::can_write`] is false).
+//! * MSF, GenBank and AB1 are read-only ([`Format::can_write`] is false).
+//!
+//! ## Traces
+//!
+//! Sanger `.ab1` files carry a chromatogram as well as a sequence. Reading one
+//! through [`read_file`] gives you the base calls as a one-row alignment;
+//! [`ab1::read_file`] gives you the signal underneath them as well, which is
+//! what the trace viewer needs to let an operator vet a call.
 
+pub mod ab1;
 mod clustal;
 mod fasta;
 mod fastq;
@@ -53,8 +61,27 @@ pub use options::{LineEnding, WriteOptions};
 /// Read a file, detecting the format from content then extension.
 pub fn read_file(path: &Path) -> Result<Alignment> {
     let bytes = fs::read(path)?;
-    let head = &bytes[..bytes.len().min(64 * 1024)];
-    let format = Format::sniff(head).or_else(|| Format::from_path(path)).ok_or_else(|| {
+    let format = detect(&bytes, path)?;
+    parse(&bytes, format, &stem(path))
+}
+
+/// The format [`read_file`] would use for `path`, without reading the whole
+/// file into an alignment.
+///
+/// Callers that need to record what a file is — a library cataloguing files it
+/// does not own, say — want this rather than a second guess at the extension.
+pub fn sniff_file(path: &Path) -> Result<Format> {
+    let mut file = fs::File::open(path)?;
+    let mut head = vec![0u8; 64 * 1024];
+    let read = std::io::Read::read(&mut file, &mut head)?;
+    head.truncate(read);
+    detect(&head, path)
+}
+
+/// Content first, extension second, and a clear complaint if neither settles it.
+fn detect(head: &[u8], path: &Path) -> Result<Format> {
+    let head = &head[..head.len().min(64 * 1024)];
+    Format::sniff(head).or_else(|| Format::from_path(path)).ok_or_else(|| {
         Error::parse(
             "file",
             None,
@@ -64,8 +91,7 @@ pub fn read_file(path: &Path) -> Result<Alignment> {
                 path.display()
             ),
         )
-    })?;
-    parse(&bytes, format, &stem(path))
+    })
 }
 
 /// Read a file with an explicitly chosen format.
@@ -90,6 +116,13 @@ pub fn parse(bytes: &[u8], format: Format, name: &str) -> Result<Alignment> {
         Format::Stockholm => stockholm::parse(bytes, name),
         Format::Msf => msf::parse(bytes, name),
         Format::Genbank => genbank::parse(bytes, name),
+        // The calls become an ordinary one-row alignment. The chromatogram is
+        // dropped here; `ab1::parse` keeps it.
+        Format::Ab1 => {
+            let trace = ab1::parse(bytes, name)?;
+            let id = if trace.sample_name.is_empty() { name } else { &trace.sample_name };
+            Ok(Alignment::new(name, vec![trace.to_sequence(id)]))
+        }
     }
 }
 
@@ -107,7 +140,7 @@ pub fn write_string(aln: &Alignment, format: Format, opts: &WriteOptions) -> Res
         Format::Nexus => nexus::write(aln, opts),
         Format::Clustal => clustal::write(aln, opts),
         Format::Stockholm => stockholm::write(aln, opts),
-        Format::Msf | Format::Genbank => {
+        Format::Msf | Format::Genbank | Format::Ab1 => {
             Err(Error::format(format!("{} files can be read but not written", format.name())))
         }
     }
@@ -174,10 +207,30 @@ mod tests {
 
     #[test]
     fn read_only_formats_refuse_to_write() {
-        for f in [Format::Msf, Format::Genbank] {
+        for f in [Format::Msf, Format::Genbank, Format::Ab1] {
             let e = write_string(&aln(), f, &WriteOptions::default()).unwrap_err();
             assert!(matches!(e, Error::Format(_)));
         }
+    }
+
+    #[test]
+    fn sniff_file_agrees_with_read_file() {
+        let dir = std::env::temp_dir().join("tolviewer-io-sniff");
+        fs::create_dir_all(&dir).unwrap();
+        for (name, bytes, expected) in [
+            ("a.fasta", &b">a\nACGT\n"[..], Format::Fasta),
+            // Content wins over a misleading extension.
+            ("b.fasta", &b"#NEXUS\nbegin data;\n"[..], Format::Nexus),
+        ] {
+            let p = dir.join(name);
+            fs::write(&p, bytes).unwrap();
+            assert_eq!(sniff_file(&p).unwrap(), expected, "{name}");
+            let _ = fs::remove_file(&p);
+        }
+        let p = dir.join("mystery.dat");
+        fs::write(&p, b"nothing recognisable here\n").unwrap();
+        assert!(sniff_file(&p).is_err());
+        let _ = fs::remove_file(&p);
     }
 
     #[test]

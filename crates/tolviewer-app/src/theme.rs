@@ -107,6 +107,27 @@ pub fn background(scheme: ColorScheme, cx: &CellContext<'_>) -> Option<Color32> 
     Some(if cx.dark { dim(base) } else { base })
 }
 
+/// The colour a single base is drawn in, for the chromatogram's trace lines
+/// and its letters.
+///
+/// This is the same palette the canvas paints cells with, so a base is the same
+/// colour wherever it appears. Unlike [`background`] it returns a line colour,
+/// which stays saturated in dark mode rather than being dimmed to sit behind
+/// text.
+pub fn base_color(residue: u8, dark: bool) -> Color32 {
+    let c = nucleotide_color(residue.to_ascii_uppercase());
+    if dark {
+        // Lines are thin; lift them slightly so they read against a dark panel.
+        Color32::from_rgb(
+            c.r().saturating_add(0x18),
+            c.g().saturating_add(0x18),
+            c.b().saturating_add(0x18),
+        )
+    } else {
+        c
+    }
+}
+
 /// Text colour that stays readable on `bg`.
 pub fn ink_for(bg: Option<Color32>, dark: bool) -> Color32 {
     match bg {

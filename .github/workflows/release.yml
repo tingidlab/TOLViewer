@@ -28,6 +28,11 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: zip
+    env:
+      # Exposed here so the `if:` on the signing steps can test them; GitHub
+      # does not allow `secrets` in a step condition.
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -45,6 +50,87 @@ jobs:
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p tolviewer-app
+
+      # ---- signing -----------------------------------------------------
+      #
+      # Both steps are skipped entirely when the secrets are not configured,
+      # and the release notes then have to keep saying the download is
+      # unsigned. They are not optional extras: an unsigned build is refused by
+      # Gatekeeper on first launch and warned about by SmartScreen, and a user
+      # who hits that concludes the download is broken rather than unsigned.
+      #
+      # To turn them on, add these repository secrets:
+      #   MACOS_CERTIFICATE          base64 of a Developer ID Application .p12
+      #   MACOS_CERTIFICATE_PASSWORD its password
+      #   MACOS_SIGNING_IDENTITY     e.g. "Developer ID Application: Name (TEAMID)"
+      #   MACOS_NOTARY_APPLE_ID      the Apple ID to notarise with
+      #   MACOS_NOTARY_PASSWORD      an app-specific password for it
+      #   MACOS_NOTARY_TEAM_ID       the team id
+      #   WINDOWS_CERTIFICATE        base64 of a code-signing .pfx
+      #   WINDOWS_CERTIFICATE_PASSWORD its password
+      - name: Sign and notarise (macOS)
+        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != ''
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          # A throwaway keychain, so nothing is left on the runner's default one.
+          keychain=$RUNNER_TEMP/signing.keychain-db
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 900 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$password" "$keychain" >/dev/null
+          security list-keychain -d user -s "$keychain"
+
+          binary=target/${{ matrix.target }}/release/tolviewer
+          # The hardened runtime is what notarisation requires.
+          codesign --force --timestamp --options runtime \
+            --sign "$MACOS_SIGNING_IDENTITY" "$binary"
+          codesign --verify --strict --verbose=2 "$binary"
+
+          # notarytool takes an archive, not a bare executable.
+          ditto -c -k --keepParent "$binary" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" \
+            --password "$MACOS_NOTARY_PASSWORD" \
+            --team-id "$MACOS_NOTARY_TEAM_ID" \
+            --wait
+          # A bare Mach-O binary cannot be stapled; Gatekeeper checks it
+          # against Apple's service on first launch instead, which is why the
+          # notarisation above has to succeed rather than merely be attempted.
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/notarize.zip"
+          security delete-keychain "$keychain"
+
+      - name: Sign (Windows)
+        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE != ''
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pfx = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $signtool = Get-ChildItem -Recurse -Filter signtool.exe `
+            'C:\Program Files (x86)\Windows Kits\10\bin' |
+            Where-Object { $_.FullName -match 'x64' } |
+            Select-Object -Last 1
+          & $signtool.FullName sign /fd SHA256 /f $pfx `
+            /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+            /tr http://timestamp.digicert.com /td SHA256 `
+            target/${{ matrix.target }}/release/tolviewer.exe
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
+          Remove-Item $pfx
 
       - name: Package (unix)
         if: matrix.archive == 'tar.gz'

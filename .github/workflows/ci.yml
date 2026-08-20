@@ -82,4 +82,5 @@ jobs:
       - name: Library crates on 1.85
         run: |
           cargo +1.85.0 build \
-            -p tolviewer-core -p tolviewer-io -p tolviewer-align -p tolviewer-clean
+            -p tolviewer-core -p tolviewer-io -p tolviewer-align -p tolviewer-clean \
+            -p tolviewer-library

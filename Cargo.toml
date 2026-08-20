@@ -5,11 +5,12 @@ members = [
     "crates/tolviewer-io",
     "crates/tolviewer-align",
     "crates/tolviewer-clean",
+    "crates/tolviewer-library",
     "crates/tolviewer-app",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.95"
 license = "MIT"
@@ -17,10 +18,11 @@ repository = "https://github.com/tingidlab/TOLViewer"
 authors = ["Tingid Lab"]
 
 [workspace.dependencies]
-tolviewer-core = { path = "crates/tolviewer-core", version = "0.1.0" }
-tolviewer-io = { path = "crates/tolviewer-io", version = "0.1.0" }
-tolviewer-align = { path = "crates/tolviewer-align", version = "0.1.0" }
-tolviewer-clean = { path = "crates/tolviewer-clean", version = "0.1.0" }
+tolviewer-core = { path = "crates/tolviewer-core", version = "0.2.0" }
+tolviewer-io = { path = "crates/tolviewer-io", version = "0.2.0" }
+tolviewer-align = { path = "crates/tolviewer-align", version = "0.2.0" }
+tolviewer-clean = { path = "crates/tolviewer-clean", version = "0.2.0" }
+tolviewer-library = { path = "crates/tolviewer-library", version = "0.2.0" }
 rayon = "1.10"
 
 [profile.release]
@@ -28,6 +30,13 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+# Drop DWARF but keep the symbol table. Measured on Linux with the release
+# profile above: 24.6 MB unstripped, 21.7 MB here, 18.5 MB with `strip = true`.
+# The difference between this and `true` is the symbol table, and that is what
+# makes a backtrace in a bug report name functions instead of listing addresses
+# — worth 3 MB. The binary is mostly `.text` (13.6 MB of egui and the alignment
+# engines), so there is no large saving left to find in symbols.
+strip = "debuginfo"
 
 [profile.dev]
 opt-level = 1

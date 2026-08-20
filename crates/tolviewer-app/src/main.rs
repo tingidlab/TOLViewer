@@ -15,9 +15,11 @@ TOLViewer — view, edit, align and clean DNA and protein alignments
 USAGE:
     tolviewer [FILE]...
 
-Any FASTA, FASTQ, PHYLIP, NEXUS, Clustal, Stockholm, MSF or GenBank file given
-on the command line is opened in a tab. With no arguments, TOLViewer starts
-empty.
+Any FASTA, FASTQ, PHYLIP, NEXUS, Clustal, Stockholm, MSF, GenBank or AB1 file
+given on the command line is opened in a tab; an AB1 trace brings its
+chromatogram with it. A .tolvlib file is opened as a project library instead.
+With no arguments, TOLViewer starts empty and reopens the library you had open
+last.
 
 OPTIONS:
     -h, --help       print this message

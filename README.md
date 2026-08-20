@@ -1,17 +1,63 @@
 # TOLViewer
 
 A cross-platform desktop viewer and editor for DNA, RNA and protein sequences
-and alignments. It does the everyday work you would otherwise open Geneious
-for — look at an alignment, check whether it is any good, fix the places where
-it is not, align it, trim it, and export it to whatever your phylogenetics
-pipeline expects — in a single self-contained binary with no runtime to
-install.
+and alignments, with a project library for the pile of files a sequencing run
+leaves behind. It does the everyday work you would otherwise open Geneious
+for — keep a project's reads organised, vet the base calls against the
+chromatogram, trim the primers off, align what you have, concatenate the loci,
+and export to whatever your phylogenetics pipeline expects — in a single
+self-contained binary with no runtime to install.
 
 Everything runs natively. Alignment and cleaning are Rust reimplementations of
 the published algorithms, so there are no external executables to download,
 license or keep on `$PATH`.
 
 ## What it does
+
+**Organise**
+* A project library down the left-hand side: folders and subfolders you
+  arrange — "Lace bug project" with "18S" and "28S" under it — so different
+  genes and sequencing batches stay apart.
+* **The files stay where they are.** Adding a file to a library reads it once
+  and remembers where it is; nothing is copied into a database and nothing is
+  moved. A library over a read-only archive or a shared drive works fine.
+* Select across folders and align the lot in one gesture, or open several
+  sequences side by side.
+* Saving an edit that would replace one of the sequencing facility's own files
+  **asks first**, and offers to keep the edit in a copy instead. Say yes once
+  and every later edit goes to that copy without asking again — so an edited
+  sequence leaves one extra file behind, not a pile of them.
+* Save the library as a `.tolvlib` file. Paths inside the project folder are
+  stored relative to it, so the whole project can be zipped, moved or shared
+  and still open.
+
+**Sanger traces**
+* Reads Applied Biosystems `.ab1` files and draws the chromatogram under the
+  sequence, so a doubtful call can be looked at rather than guessed about.
+* Calls the instrument was unsure of are flagged, and so are calls a person has
+  since changed — retyping one is an ordinary undoable edit, and the signal
+  underneath is left alone as the evidence it is.
+* Reverse complement a read to account for sequencing from the reverse primer.
+  The trace is flipped with it, and the file on disk is not touched.
+
+**Primers**
+* Keep the project's primers in the library, degenerate IUPAC codes and all.
+* Map them onto reads to see where they bind, on either strand, with a
+  mismatch budget — the start of a Sanger read is where the basecaller is
+  least sure, so an exact match is not the common case.
+* Trim reads back to the amplicon. The trim is an ordinary edit you can look
+  at and undo, and it goes through the same save question as anything else.
+
+**Assemble**
+* Extract individual sequences out of a multiple alignment as library entries
+  of their own, without duplicating anything on disk.
+* Concatenate per-locus alignments into a supermatrix, matching the same
+  specimen across loci by name: `TL-2213_18S_F` and `TL_2213_28S` are
+  recognised as one animal. Specimens missing a locus are gapped and
+  **reported**, because a row that is mostly gaps is usually a name that failed
+  to match rather than a gap in the sampling.
+* Partition boundaries come out as NEXUS `charset` lines or RAxML partitions,
+  ready for a partitioned analysis.
 
 **View**
 * A virtualised alignment canvas: only the visible cells are drawn, so a
@@ -82,6 +128,7 @@ minutes.
 | Stockholm | yes | yes |
 | MSF / GCG | yes | — |
 | GenBank | yes | — |
+| AB1 (Sanger trace) | yes | — |
 
 Files are detected by content first and extension second, and saving is atomic
 (write to a temporary file, then rename), so an interrupted save cannot leave
@@ -120,9 +167,12 @@ macOS and Windows need nothing beyond the toolchain.
 tolviewer                       # start empty
 tolviewer alignment.fasta       # open a file
 tolviewer *.nex                 # open several, one per tab
+tolviewer reads/*.ab1           # traces, with their chromatograms
+tolviewer lace-bugs.tolvlib     # open a project library
 ```
 
-You can also drop files onto the window.
+You can also drop files onto the window. The library you had open last is
+reopened on the next run.
 
 ### Keyboard
 
@@ -151,13 +201,14 @@ tolviewer-core    data model — sequences, alignments, editing, undo, statistic
 tolviewer-io      readers and writers for the formats above
 tolviewer-align   Clustal-, MUSCLE- and MAFFT-style alignment engines
 tolviewer-clean   Gblocks and the simpler column/row filters
+tolviewer-library the project library, primers, concatenation, the save policy
 tolviewer-app     the egui/eframe desktop application
 ```
 
-`tolviewer-core` has no dependencies at all, and the three engine crates depend
-only on it (plus `rayon` for parallelism), so they are usable as libraries
-independently of the GUI — and they build on Rust 1.85, well below the 1.95
-the GUI needs, which CI checks on every push.
+`tolviewer-core` has no dependencies at all, and the four other engine crates
+depend only on each other (plus `rayon` for parallelism), so they are usable as
+libraries independently of the GUI — and they build on Rust 1.85, well below
+the 1.95 the GUI needs, which CI checks on every push.
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the API contract between them.
 
 ## A note on the reimplementations

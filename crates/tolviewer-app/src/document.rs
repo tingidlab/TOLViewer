@@ -5,7 +5,9 @@ use std::path::PathBuf;
 
 use tolviewer_core::{Alignment, Alphabet, Consensus, EditOp, Result, UndoStack};
 use tolviewer_io::Format;
+use tolviewer_library::NodeId;
 
+use crate::chromatogram::TraceView;
 use crate::selection::{Cell, Selection, SelectionMode};
 
 /// Derived data that must be recomputed when the alignment changes. Keyed on
@@ -23,6 +25,11 @@ pub struct Document {
     pub path: Option<PathBuf>,
     /// Format it was read as, used as the default for Save.
     pub format: Format,
+    /// The library entry this was opened from, if any. Saving such a document
+    /// goes through the library's in-situ policy rather than straight to disk.
+    pub origin: Option<NodeId>,
+    /// The chromatogram behind the sequence, for documents opened from a trace.
+    pub trace: Option<TraceView>,
     pub selection: Selection,
     /// First visible column and row, driven by the scroll area.
     pub scroll_col: f32,
@@ -48,6 +55,8 @@ impl Document {
             undo: UndoStack::new(),
             path,
             format,
+            origin: None,
+            trace: None,
             selection: Selection::default(),
             scroll_col: 0.0,
             scroll_row: 0.0,
@@ -87,6 +96,28 @@ impl Document {
 
     pub fn mark_saved(&mut self) {
         self.saved_revision = self.undo.revision();
+    }
+
+    /// The same document, but remembered as belonging to a library entry.
+    pub fn from_library(mut self, entry: NodeId, trace: Option<TraceView>) -> Self {
+        self.origin = Some(entry);
+        self.trace = trace;
+        self
+    }
+
+    /// The trace, lined up against the row it belongs to as the document
+    /// stands now. `None` when this is not a trace document.
+    ///
+    /// The alignment is recomputed rather than remembered, so it stays right
+    /// across edits, undo and redo without the trace having to be part of the
+    /// undo stack.
+    pub fn trace_view(&mut self) -> Option<&TraceView> {
+        let revision = self.undo.revision();
+        let row = self.trace.as_ref()?.row;
+        let residues = self.alignment.sequences.get(row)?.ungapped();
+        let view = self.trace.as_mut()?;
+        view.relink(&residues, revision);
+        Some(view)
     }
 
     pub fn alphabet(&self) -> Alphabet {

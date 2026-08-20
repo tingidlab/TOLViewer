@@ -3244,7 +3244,7 @@ dependencies = [
 
 [[package]]
 name = "tolviewer-align"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rayon",
  "tolviewer-core",
@@ -3252,7 +3252,7 @@ dependencies = [
 
 [[package]]
 name = "tolviewer-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "egui",
@@ -3264,24 +3264,34 @@ dependencies = [
  "tolviewer-clean",
  "tolviewer-core",
  "tolviewer-io",
+ "tolviewer-library",
 ]
 
 [[package]]
 name = "tolviewer-clean"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tolviewer-core",
 ]
 
 [[package]]
 name = "tolviewer-core"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "tolviewer-io"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tolviewer-core",
+]
+
+[[package]]
+name = "tolviewer-library"
+version = "0.2.0"
+dependencies = [
+ "tolviewer-align",
+ "tolviewer-core",
+ "tolviewer-io",
 ]
 
 [[package]]

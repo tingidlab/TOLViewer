@@ -94,6 +94,31 @@ Accuracy is measured as sum-of-pairs against known true alignments in
 rounded down; if a change moves them, that's a real regression to explain, not a
 number to adjust.
 
+## Releases
+
+Tagging `v*` triggers `.github/workflows/release.yml`, which builds
+x86_64-linux-gnu, both macOS architectures and x86_64-windows-msvc, then
+publishes a GitHub release with the four archives attached. Check CI is green on
+the commit first — the release workflow does not re-run the tests.
+
+`generate_release_notes: true` only produces anything useful once there is a
+previous tag to diff against. For v0.1.0 it emitted a bare "Full Changelog"
+link, and the notes were written by hand afterwards with `gh release edit
+<tag> --notes-file`. Expect to do that again for anything worth announcing.
+
+Two known gaps, both deliberate for 0.1.0 and both worth fixing before this is
+handed to people who did not build it:
+
+* **Nothing is signed or notarised.** macOS Gatekeeper refuses the binary on
+  first launch unless the user does right-click → Open or strips the quarantine
+  attribute, and SmartScreen warns on Windows. The v0.1.0 release notes say so
+  explicitly; keep saying so until it is fixed, because a user who hits this
+  silently concludes the download is broken.
+* **The Linux binary is not stripped.** It ships at 7.8 MB against Windows'
+  5.6 MB, almost entirely debug symbols. `strip = true` in `[profile.release]`
+  roughly halves it, at the cost of useful backtraces in bug reports — which is
+  the actual trade-off to think about, not a free win.
+
 ## Conventions
 
 * Tests live in `#[cfg(test)] mod tests` in the same file, plus `tests/` for

@@ -71,7 +71,7 @@ fn icon() -> egui::IconData {
     for y in 0..SIZE {
         for x in 0..SIZE {
             let band = (y * 8 / SIZE).min(7);
-            let color = if (4..60).contains(&x) && (4..60).contains(&y) && band % 2 == 0 {
+            let color = if (4..60).contains(&x) && (4..60).contains(&y) && band.is_multiple_of(2) {
                 palette[(band / 2) % palette.len()]
             } else {
                 [0x1E, 0x20, 0x24, 0xFF]
